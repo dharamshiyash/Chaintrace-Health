@@ -1,0 +1,12 @@
+node_modules/
+.env
+.DS_Store
+artifacts/
+cache/
+dist/
+deployments/*.json
+!deployments/ChainTraceHealth.abi.json
+!deployments/amoy.json
+!deployments/.gitkeep
+reports/*.json
+!reports/.gitkeep

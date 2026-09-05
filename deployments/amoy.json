@@ -1,0 +1,11 @@
+{
+  "network": "amoy",
+  "chainId": 80002,
+  "contractAddress": "0x3E8bBd12a1A614d131Fc227106D2697Df1C0C072",
+  "deployer": "0x05Db076e1f33575447AC32E3b5401a90e77a9cFD",
+  "txHash": "0xa414af940f1c0523d55371747f8fa74f255a4cbc5412eaea471e17c263d5b6e9",
+  "blockNumber": 46811349,
+  "gasUsed": "1796327",
+  "confirmationMs": 4780,
+  "deployedAt": "2026-09-05T17:36:31.445Z"
+}
