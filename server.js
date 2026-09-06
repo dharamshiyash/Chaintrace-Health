@@ -41,6 +41,7 @@ function withId(handler) {
 
 // ── Routes ────────────────────────────────────────────────────────────────
 app.get("/api/batches",         batchesIndex);
+app.post("/api/batches",        batchesIndex);
 app.get("/api/batches/:id",     withId(batchesById));
 app.get("/api/verify/:id",      withId(verifyById));
 app.post("/api/events",         eventsIndex);

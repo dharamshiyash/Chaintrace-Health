@@ -1,8 +1,56 @@
 import { supabase, withTimeout } from "../_lib/supabase.js";
-import { contract } from "../_lib/contract.js";
-import { ethers } from "ethers";
+import { contract, verifyBatchWithFallback } from "../_lib/contract.js";
+
+// Global in-memory registry of known batch IDs across requests
+const knownBatchIdSet = new Set([
+  "BATCH-MED-2024-001",
+  "BATCH-MED-2024-002",
+  "BATCH-MED-2024-003",
+  "BATCH-MED-2024-004",
+  "BATCH-MED-2024-005",
+  "BATCH-MED-2024-006",
+  "BATCH-MED-2024-007",
+  "BATCH-MED-2024-008",
+  "BATCH-MED-2024-009",
+  "BATCH-MED-2024-010",
+  "BATCH-001",
+  "BATCH-002",
+  "BATCH-003",
+  "BATCH-004",
+  "BATCH-005",
+]);
 
 export default async function handler(req, res) {
+  // Handle POST: Register / index newly confirmed batch
+  if (req.method === "POST") {
+    const { batch_id, medicine_name, manufacturer, status, quantity, manufacturing_date, expiry_date, tx_hash } = req.body || {};
+    if (!batch_id) {
+      return res.status(400).json({ error: "batch_id is required" });
+    }
+
+    const cleanId = String(batch_id).trim();
+    knownBatchIdSet.add(cleanId);
+
+    // Best effort persistence to Supabase mirror
+    try {
+      await withTimeout(
+        supabase.from("batches").upsert([
+          {
+            batch_id: cleanId,
+            medicine_name: medicine_name || "Medicine Batch",
+            manufacturer: manufacturer || null,
+            status: status || "Active",
+          },
+        ]),
+        1500
+      );
+    } catch (err) {
+      console.warn("Notice: Supabase batch persistence skipped:", err.message);
+    }
+
+    return res.status(201).json({ ok: true, batch_id: cleanId });
+  }
+
   if (req.method !== "GET") {
     return res.status(405).json({ error: "Method not allowed" });
   }
@@ -10,117 +58,99 @@ export default async function handler(req, res) {
   const { status, manufacturer } = req.query;
 
   try {
-    // Try Supabase first
-    let data = null;
-    let supabaseOk = false;
+    // 1. Collect candidate batch IDs from in-memory set and Supabase
+    const candidateIds = new Set(knownBatchIdSet);
 
     try {
-      let query = supabase.from("batches").select("*").order("created_at", { ascending: false });
-      if (status) query = query.eq("status", status);
-      if (manufacturer) query = query.eq("manufacturer", manufacturer);
-
-      const result = await withTimeout(query, 1000);
-      if (!result.error && result.data && result.data.length > 0) {
-        data = result.data;
-        supabaseOk = true;
+      const { data: supaBatches } = await withTimeout(
+        supabase.from("batches").select("batch_id, medicine_name, status, manufacturer, created_at"),
+        800
+      );
+      if (supaBatches && supaBatches.length > 0) {
+        supaBatches.forEach((b) => {
+          if (b.batch_id) candidateIds.add(b.batch_id);
+        });
       }
     } catch (err) {
-      console.warn("Supabase unavailable, falling back to blockchain:", err.message);
+      console.warn("Supabase lookup skipped:", err.message);
     }
 
-    // Fallback: read from blockchain if Supabase is empty or failed
-    if (!supabaseOk) {
-      try {
-        const allHashes = await contract.getAllBatchHashes();
-        if (allHashes && allHashes.length > 0) {
-          const batchPromises = allHashes.map(async (hash) => {
-            try {
-              // Use verifyBatch via hash — we need batch ID string
-              // Unfortunately verifyBatch takes string, but we have hash
-              // Use getBatchStatusByHash + other reads
-              // Actually the contract stores batchId string in the batch struct
-              // We need to iterate and call verifyBatch with the stored batchId
-              // But we don't have the batchId string from the hash alone
-              // Workaround: use the ABI to call the internal mapping directly
-              // Best approach: try to read batch data via low-level call
-              
-              // Actually, we can get status by hash, but for full data we need the string ID
-              // The seed script uses known IDs, so let's try common patterns
-              // Better: store a mapping in the contract or use events
-              
-              // For now, get status from hash
-              const statusCode = await contract.getBatchStatusByHash(hash);
-              const statusMap = ["Active", "Suspicious", "Recalled", "Expired", "Unknown"];
-              
+    // 2. Fetch on-chain verification data in controlled chunks to respect DRPC concurrency
+    const statusMap = ["Active", "Suspicious", "Recalled", "Expired", "Unknown"];
+    const candidateList = Array.from(candidateIds);
+    const verifiedBatches = [];
+
+    const CHUNK_SIZE = 3;
+    for (let i = 0; i < candidateList.length; i += CHUNK_SIZE) {
+      const chunk = candidateList.slice(i, i + CHUNK_SIZE);
+      const chunkResults = await Promise.allSettled(
+        chunk.map(async (batchId) => {
+          try {
+            const result = await verifyBatchWithFallback(batchId);
+            const [exists, medicineName, bId, mfgDate, expDate, quantity, mfr, statusCode, recallReason] = result;
+            if (exists) {
               return {
-                batch_id: hash, // Will be replaced if we can decode
-                batch_hash: hash,
+                batch_id: bId || batchId,
+                medicine_name: medicineName,
+                manufacturer: mfr,
                 status: statusMap[Number(statusCode)] || "Unknown",
+                recall_reason: recallReason || null,
+                quantity: Number(quantity),
+                manufacturing_date: Number(mfgDate),
+                expiry_date: Number(expDate),
+                created_at: new Date(Number(mfgDate) * 1000).toISOString(),
+                source: "blockchain",
               };
-            } catch {
-              return null;
             }
-          });
-
-          const rawBatches = (await Promise.all(batchPromises)).filter(Boolean);
-          
-          // Try to get full data for known batch ID patterns
-          const knownPatterns = [];
-          for (let i = 1; i <= 20; i++) {
-            knownPatterns.push(`BATCH-MED-2024-${String(i).padStart(3, '0')}`);
+          } catch {
+            // Batch doesn't exist on-chain or read reverted, skip
           }
+          return null;
+        })
+      );
 
-          const fullBatches = [];
-          for (const batchId of knownPatterns) {
-            try {
-              const result = await contract.verifyBatch(batchId);
-              const [exists, medicineName, bId, mfgDate, expDate, quantity, mfr, statusCode, recallReason] = result;
-              if (exists) {
-                const statusMap = ["Active", "Suspicious", "Recalled", "Expired", "Unknown"];
-                fullBatches.push({
-                  batch_id: bId,
-                  medicine_name: medicineName,
-                  manufacturer: mfr,
-                  status: statusMap[Number(statusCode)] || "Unknown",
-                  recall_reason: recallReason || null,
-                  quantity: Number(quantity),
-                  manufacturing_date: Number(mfgDate),
-                  expiry_date: Number(expDate),
-                  created_at: new Date(Number(mfgDate) * 1000).toISOString(),
-                  source: "blockchain",
-                });
-              }
-            } catch {
-              // Batch doesn't exist with this ID, skip
-            }
-          }
+      chunkResults.forEach((r) => {
+        if (r.status === "fulfilled" && r.value !== null) {
+          verifiedBatches.push(r.value);
+        }
+      });
+    }
 
-          if (fullBatches.length > 0) {
-            data = fullBatches;
-          } else if (rawBatches.length > 0) {
-            // Return minimal data from hashes
-            data = rawBatches;
-          }
+    // Deduplicate batches by batch_id
+    const batchMap = new Map();
+    verifiedBatches.forEach((b) => batchMap.set(b.batch_id, b));
+
+    let data = Array.from(batchMap.values());
+
+    // If still no batches found from on-chain verifyBatch, attempt Supabase fallback
+    if (data.length === 0) {
+      try {
+        let query = supabase.from("batches").select("*").order("created_at", { ascending: false });
+        if (status) query = query.eq("status", status);
+        if (manufacturer) query = query.eq("manufacturer", manufacturer);
+
+        const result = await withTimeout(query, 1000);
+        if (result.data && result.data.length > 0) {
+          data = result.data;
         }
       } catch (err) {
-        console.warn("Blockchain fallback also failed:", err.message);
+        console.warn("Supabase fallback failed:", err.message);
       }
     }
 
-    // If still no data, return empty array
-    if (!data || data.length === 0) {
-      return res.status(200).json([]);
-    }
-
-    // Apply filters if using blockchain data
+    // Apply query filters
     let filtered = data;
-    if (!supabaseOk) {
-      if (status) filtered = filtered.filter(b => b.status === status);
-      if (manufacturer) filtered = filtered.filter(b => b.manufacturer?.toLowerCase() === manufacturer?.toLowerCase());
+    if (status) {
+      filtered = filtered.filter((b) => b.status === status);
+    }
+    if (manufacturer) {
+      filtered = filtered.filter(
+        (b) => b.manufacturer?.toLowerCase() === manufacturer?.toLowerCase()
+      );
     }
 
-    // Enrich with stage metadata
-    const enrichedData = filtered.map(b => {
+    // Enrich with stage & isLate metadata
+    const enrichedData = filtered.map((b) => {
       let stage = "Fresh";
       const createdAt = b.created_at || new Date().toISOString();
       const ageDays = (Date.now() - new Date(createdAt).getTime()) / (1000 * 60 * 60 * 24);
@@ -134,9 +164,10 @@ export default async function handler(req, res) {
 
       let isLate = false;
       if (b.expiry_date) {
-        const expiryMs = typeof b.expiry_date === 'number' && b.expiry_date < 1e12 
-          ? b.expiry_date * 1000  // unix seconds → ms
-          : b.expiry_date;        // already ms or ISO string
+        const expiryMs =
+          typeof b.expiry_date === "number" && b.expiry_date < 1e12
+            ? b.expiry_date * 1000
+            : b.expiry_date;
         const timeToExpiry = new Date(expiryMs).getTime() - Date.now();
         if (timeToExpiry < 180 * 24 * 60 * 60 * 1000 && timeToExpiry > 0) isLate = true;
       }
@@ -147,6 +178,9 @@ export default async function handler(req, res) {
         isLate,
       };
     });
+
+    // Sort newest first
+    enrichedData.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
 
     return res.status(200).json(enrichedData);
   } catch (error) {

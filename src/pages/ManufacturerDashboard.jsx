@@ -1,7 +1,8 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { listBatches, getOffenders } from "../lib/api.js";
+import { listBatches, getOffenders, registerBatchApi, recordEvent } from "../lib/api.js";
+import { registerBatchOnChain, parseWeb3Error, getConnectedAccount, connectWallet } from "../lib/contract.js";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, ShieldWarning, Cube, Factory, Link as LinkIcon, ChartLineUp, WarningCircle, CheckCircle, ShieldPlus, Users, ArrowsClockwise } from "@phosphor-icons/react";
 import BatchTable from "../components/BatchTable.jsx";
@@ -12,7 +13,7 @@ import { AreaChart, Area, ResponsiveContainer, PieChart, Pie, Cell, Tooltip } fr
 const RECALL_REASONS = ["Confirmed Expiry", "Probable Expiry", "Quality Defect", "Contamination", "Other"];
 const COLORS = ['#10b981', '#f43f5e'];
 
-function Toast({ msg, type, onDismiss }) {
+function Toast({ msg, type, txHash, onDismiss }) {
   if (!msg) return null;
   return (
     <AnimatePresence>
@@ -20,7 +21,7 @@ function Toast({ msg, type, onDismiss }) {
         initial={{ opacity: 0, x: 50, scale: 0.9 }} 
         animate={{ opacity: 1, x: 0, scale: 1 }} 
         exit={{ opacity: 0, x: 50, scale: 0.9 }}
-        className={`fixed bottom-6 right-6 p-4 rounded-xl shadow-lg flex items-start gap-4 z-50 max-w-sm border ${
+        className={`fixed bottom-6 right-6 p-4 rounded-xl shadow-lg flex items-start gap-4 z-50 max-w-md border ${
           type === 'success' ? 'bg-white border-emerald-200 text-slate-800' :
           'bg-white border-red-200 text-slate-800'
         }`}
@@ -28,7 +29,19 @@ function Toast({ msg, type, onDismiss }) {
         <div className={`mt-0.5 rounded-full p-1 ${type === 'success' ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>
           {type === 'success' ? <CheckCircle size={16} weight="fill" /> : <WarningCircle size={16} weight="fill" />}
         </div>
-        <span className="text-sm font-medium pt-0.5">{msg}</span>
+        <div className="flex flex-col gap-1 flex-1">
+          <span className="text-sm font-medium pt-0.5">{msg}</span>
+          {txHash && (
+            <a 
+              href={`https://amoy.polygonscan.com/tx/${txHash}`} 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="text-xs text-purple-600 hover:text-purple-800 underline font-mono flex items-center gap-1 mt-0.5"
+            >
+              View on Polygonscan <LinkIcon size={12} />
+            </a>
+          )}
+        </div>
         <button onClick={onDismiss} className="mt-0.5 text-slate-400 hover:text-slate-600 transition-colors">
           <X size={16} weight="bold" />
         </button>
@@ -44,11 +57,28 @@ export default function ManufacturerDashboard() {
   const [whitelistAddr, setWhitelistAddr] = useState("");
   const [toast, setToast] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [connectedAccount, setConnectedAccount] = useState(null);
   const qc = useQueryClient();
 
-  function showToast(msg, type = "success") {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 4000);
+  useEffect(() => {
+    getConnectedAccount().then((acc) => {
+      if (acc) setConnectedAccount(acc);
+    });
+
+    if (typeof window !== "undefined" && window.ethereum) {
+      const handleAccounts = (accounts) => {
+        setConnectedAccount(accounts && accounts.length > 0 ? accounts[0] : null);
+      };
+      window.ethereum.on?.("accountsChanged", handleAccounts);
+      return () => {
+        window.ethereum.removeListener?.("accountsChanged", handleAccounts);
+      };
+    }
+  }, []);
+
+  function showToast(msg, type = "success", txHash = null) {
+    setToast({ msg, type, txHash });
+    setTimeout(() => setToast(null), 6000);
   }
 
   const { 
@@ -105,12 +135,53 @@ export default function ManufacturerDashboard() {
   async function handleRegister(form) {
     setSubmitting(true);
     try {
-      await new Promise(r => setTimeout(r, 1500));
-      showToast(`Batch "${form.batchId}" successfully issued to blockchain.`, "success");
+      const result = await registerBatchOnChain(form);
+      const txHash = result.txHash;
+      const shortHash = truncateAddress(txHash, 8, 6);
+
+      // Best-effort notification to backend to index new batch
+      try {
+        await registerBatchApi({
+          batch_id: form.batchId.trim(),
+          medicine_name: form.medicineName.trim(),
+          quantity: Number(form.quantity),
+          manufacturing_date: result.mfgTimestamp,
+          expiry_date: result.expTimestamp,
+          location: form.location.trim(),
+          tx_hash: txHash,
+          manufacturer: connectedAccount || undefined,
+        });
+      } catch (apiErr) {
+        console.warn("Notice: Backend batch indexing warning:", apiErr.message);
+      }
+
+      // Record performance metric for dashboard analytics
+      try {
+        await recordEvent({
+          function_name: `registerBatch(${form.batchId})`,
+          tx_hash: txHash,
+          gas_used: result.receipt?.gasUsed ? Number(result.receipt.gasUsed) : 0,
+          confirmation_ms: 2000,
+          success: true,
+        });
+      } catch {
+        // Non-critical performance logging
+      }
+
+      showToast(
+        `Batch "${form.batchId}" registered on Polygon Amoy! TX: ${shortHash}`,
+        "success",
+        txHash
+      );
+      // Only close drawer upon successful blockchain confirmation
       setIsDrawerOpen(false);
-      qc.invalidateQueries({ queryKey: ["batches"] });
+      await qc.invalidateQueries({ queryKey: ["batches"] });
+      await qc.refetchQueries({ queryKey: ["batches"] });
     } catch (err) {
-      showToast(err.message || "Transaction failed. Please try again.", "error");
+      console.error("Batch registration error:", err);
+      const message = parseWeb3Error(err);
+      showToast(message, "error");
+      // Do NOT close drawer on error so user can adjust inputs
     } finally {
       setSubmitting(false);
     }
@@ -149,7 +220,7 @@ export default function ManufacturerDashboard() {
 
   return (
     <main className="bg-[#F9F9F7] min-h-[calc(100vh-64px)] pb-24 font-sans text-slate-800">
-      <Toast msg={toast?.msg} type={toast?.type} onDismiss={() => setToast(null)} />
+      <Toast msg={toast?.msg} type={toast?.type} txHash={toast?.txHash} onDismiss={() => setToast(null)} />
       
       <BatchRegistrationDrawer 
         isOpen={isDrawerOpen} 
@@ -174,8 +245,19 @@ export default function ManufacturerDashboard() {
             <p className="text-slate-500 font-medium text-base md:text-lg max-w-2xl">Mint new medicine batches onto the blockchain, monitor global inventory state, and manage your authorized partner network.</p>
           </div>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto">
-            <div className="flex px-4 py-3 sm:py-2 border border-slate-200 rounded-xl bg-white shadow-sm text-sm font-mono text-slate-700 items-center justify-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-green-500"></span> 0x8aF...9d1
+            <div 
+              className="flex px-4 py-3 sm:py-2 border border-slate-200 rounded-xl bg-white shadow-sm text-sm font-mono text-slate-700 items-center justify-center gap-2 cursor-pointer hover:border-purple-300 transition-colors"
+              onClick={() => {
+                if (!connectedAccount) {
+                  connectWallet()
+                    .then(setConnectedAccount)
+                    .catch((err) => showToast(parseWeb3Error(err), "error"));
+                }
+              }}
+              title={connectedAccount ? `Connected: ${connectedAccount}` : "Click to connect MetaMask"}
+            >
+              <span className={`w-2 h-2 rounded-full ${connectedAccount ? "bg-green-500" : "bg-amber-400"}`}></span>
+              {connectedAccount ? truncateAddress(connectedAccount, 6, 4) : "Connect Wallet"}
             </div>
             <button onClick={() => setIsDrawerOpen(true)} className="btn btn-primary text-sm px-6 py-3 justify-center bg-purple-600 hover:bg-purple-700">
               <Cube size={18} weight="fill" /> Issue New Batch

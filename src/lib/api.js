@@ -35,6 +35,7 @@ export function listBatches(params = {}) {
 }
 export function getOffenders()          { return apiFetch("/api/offenders"); }
 export function recordEvent(body)       { return apiFetch("/api/events", { method: "POST", body: JSON.stringify(body) }); }
+export function registerBatchApi(body)  { return apiFetch("/api/batches", { method: "POST", body: JSON.stringify(body) }); }
 export function qrUrl(batchId)          { return `${BASE_URL}/api/qr/${batchId}`; }
 
 // Download QR as blob for reliable saving
