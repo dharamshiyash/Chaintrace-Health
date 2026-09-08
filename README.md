@@ -31,7 +31,7 @@ The global counterfeit drug market costs thousands of lives and billions of doll
 
 | Service | Environment | Endpoint |
 |---|---|---|
-| **Frontend UI** | Vercel (Prod) / Localhost | `http://localhost:5173` |
+| **Frontend UI** | Vercel (Prod) / Localhost | [`https://chaintrace-health.vercel.app/`](https://chaintrace-health.vercel.app/) |
 | **Smart Contract** | Polygon Amoy (Testnet) | [`0x9fE46736679d...`](https://amoy.polygonscan.com/) |
 | **Backend API** | Vercel Serverless | `/api/batches`, `/api/verify` |
 
