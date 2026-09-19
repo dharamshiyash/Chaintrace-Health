@@ -3,9 +3,10 @@ import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { listBatches } from "../lib/api.js";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Handshake, Truck, Camera, ArrowRight, Link as LinkIcon, CheckCircle, WarningCircle, Buildings, Warehouse, ArrowsClockwise, Storefront, Package } from "@phosphor-icons/react";
+import { X, Handshake, Truck, Camera, ArrowRight, Link as LinkIcon, CheckCircle, WarningCircle, Buildings, Warehouse, ArrowsClockwise, Storefront, Package, QrCode } from "@phosphor-icons/react";
 import BatchTable from "../components/BatchTable.jsx";
 import QRScanner from "../components/QRScanner.jsx";
+import ProfileQRModal from "../components/ProfileQRModal.jsx";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
 function Toast({ msg, type, onDismiss }) {
@@ -16,7 +17,7 @@ function Toast({ msg, type, onDismiss }) {
         initial={{ opacity: 0, x: 50, scale: 0.9 }} 
         animate={{ opacity: 1, x: 0, scale: 1 }} 
         exit={{ opacity: 0, x: 50, scale: 0.9 }}
-        className={`fixed bottom-6 right-6 p-4 rounded-xl shadow-lg flex items-start gap-4 z-50 max-w-sm border ${
+        className={`fixed bottom-6 right-6 p-4 rounded-xl shadow-lg flex items-start gap-4 z-[9999] max-w-sm border ${
           type === 'success' ? 'bg-white border-status-active/20 text-slate-800' :
           'bg-white border-status-recalled/20 text-slate-800'
         }`}
@@ -39,6 +40,7 @@ export default function DistributorDashboard() {
   const [toast, setToast] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [scanningFor, setScanningFor] = useState(null);
+  const [isProfileQrOpen, setIsProfileQrOpen] = useState(false);
   const qc = useQueryClient();
 
   function showToast(msg, type = "success") {
@@ -103,7 +105,7 @@ export default function DistributorDashboard() {
   }
 
   return (
-    <main className="bg-[#F9F9F7] min-h-[calc(100vh-64px)] pb-24 font-sans text-slate-800">
+    <main className="bg-[#F1F1ED] min-h-[calc(100vh-64px)] pb-24 font-sans text-slate-800">
       <Toast msg={toast?.msg} type={toast?.type} onDismiss={() => setToast(null)} />
 
       <motion.div 
@@ -122,10 +124,16 @@ export default function DistributorDashboard() {
             <p className="text-slate-500 font-medium text-lg">Manage bulk inventory acquisition, warehouse storage, and redistribution to retail pharmacies.</p>
           </div>
           <div className="flex items-center gap-3">
-            <div className="hidden md:flex px-4 py-2 border border-slate-200 rounded-xl bg-white shadow-sm text-sm font-mono text-slate-700 items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-green-500"></span>
+            <button
+              type="button"
+              onClick={() => setIsProfileQrOpen(true)}
+              className="px-4 py-2 border border-slate-200 hover:border-blue-400 rounded-xl bg-white shadow-sm text-sm font-mono text-slate-700 flex items-center gap-2 transition-all hover:bg-slate-50 cursor-pointer"
+              title="Click to view and share Distributor Node Profile QR"
+            >
+              <span className="w-2 h-2 rounded-full bg-blue-500"></span>
               0x2Bd...7f3
-            </div>
+              <QrCode size={16} className="text-slate-400" />
+            </button>
           </div>
         </div>
 
@@ -260,10 +268,26 @@ export default function DistributorDashboard() {
                     </button>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="text-xs font-bold uppercase tracking-widest text-slate-400 block mb-2">Retailer Address</label>
-                    <input className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 font-mono focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all" placeholder="0x..." value={transferForm.toAddress} onChange={e => setTransferForm(f => ({ ...f, toAddress: e.target.value }))} required />
+                    <div className="flex gap-2">
+                      <input 
+                        className="flex-1 px-4 py-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 font-mono text-xs focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all" 
+                        placeholder="0x..." 
+                        value={transferForm.toAddress} 
+                        onChange={e => setTransferForm(f => ({ ...f, toAddress: e.target.value }))} 
+                        required 
+                      />
+                      <button 
+                        type="button" 
+                        className="px-3 border border-slate-200 bg-white hover:bg-slate-50 rounded-xl transition-colors text-slate-600 flex items-center justify-center" 
+                        onClick={() => setScanningFor("recipient")}
+                        title="Scan Retailer Profile QR"
+                      >
+                        <Camera weight="duotone" size={20} />
+                      </button>
+                    </div>
                   </div>
                   <div>
                     <label className="text-xs font-bold uppercase tracking-widest text-slate-400 block mb-2">Delivery Destination</label>
@@ -302,6 +326,9 @@ export default function DistributorDashboard() {
                 setReceiveForm(f => ({ ...f, batchId: scannedId }));
               } else if (scanningFor === "transfer") {
                 setTransferForm(f => ({ ...f, batchId: scannedId }));
+              } else if (scanningFor === "recipient") {
+                const addrMatch = scannedId.match(/0x[a-fA-F0-9]{40}/);
+                setTransferForm(f => ({ ...f, toAddress: addrMatch ? addrMatch[0] : scannedId }));
               }
               setScanningFor(null);
             }}
@@ -309,6 +336,14 @@ export default function DistributorDashboard() {
           />
         )}
       </AnimatePresence>
+
+      <ProfileQRModal 
+        isOpen={isProfileQrOpen}
+        onClose={() => setIsProfileQrOpen(false)}
+        roleName="Authorized Wholesale Hub Node"
+        address="0x2Bd8a4078832a8C3775685B643442ffA567b47f3"
+        roleType="distributor"
+      />
     </main>
   );
 }

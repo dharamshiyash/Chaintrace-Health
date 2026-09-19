@@ -82,7 +82,7 @@ export default function Verify() {
   }, [data]);
 
   return (
-    <main className="bg-[#F9F9F7] min-h-[calc(100vh-64px)] pb-24 font-sans text-slate-800">
+    <main className="bg-[#F1F1ED] min-h-[calc(100vh-64px)] pb-24 font-sans text-slate-800">
       
       <div className="relative pt-20 px-6">
         {!batchId && (
@@ -167,61 +167,110 @@ export default function Verify() {
             </div>
 
             {/* Cryptographic Seal Status Card */}
-            <div className={`mb-8 p-6 md:p-10 rounded-3xl border shadow-sm flex flex-col md:flex-row items-center justify-between gap-8 transition-colors duration-700 ${
-              isVerifyingHash 
+            {(() => {
+              const status = data.metadata.status;
+              const isSuspicious = status === "Suspicious";
+              const isRecalled = status === "Recalled";
+              const isExpired = status === "Expired";
+              const isActive = status === "Active";
+
+              const cardBg = isVerifyingHash 
                 ? "bg-white border-slate-200" 
-                : data.metadata.status === "Active"
-                  ? "bg-[#F3FAF7] border-[#A7F3D0]"
-                  : "bg-red-50 border-red-200"
-            }`}>
-              <div className="flex items-center gap-6">
-                <div className={`relative flex items-center justify-center w-20 h-20 rounded-2xl ${
-                  isVerifyingHash ? "bg-slate-100 text-slate-400" 
-                  : data.metadata.status === "Active" ? "bg-white text-[#059669] shadow-sm border border-[#A7F3D0]" 
-                  : "bg-white text-red-600 shadow-sm border border-red-200"
-                }`}>
-                  {isVerifyingHash ? <HardDrives size={40} className="animate-pulse" /> : 
-                   data.metadata.status === "Active" ? <SealCheck size={48} weight="fill" /> : 
-                   <Warning size={40} weight="fill" />}
-                   
-                   {!isVerifyingHash && data.metadata.status === "Active" && (
-                     <div className="absolute inset-0 rounded-2xl border border-[#059669] animate-[spin_8s_linear_infinite] opacity-20" style={{ borderStyle: 'dashed' }} />
-                   )}
+                : isActive 
+                ? "bg-[#F3FAF7] border-[#A7F3D0]" 
+                : isSuspicious 
+                ? "bg-[#FFFBEB] border-[#FDE68A]" 
+                : isRecalled 
+                ? "bg-red-50 border-red-200" 
+                : "bg-orange-50 border-orange-200";
+
+              const iconBoxBg = isVerifyingHash 
+                ? "bg-slate-100 text-slate-400" 
+                : isActive 
+                ? "bg-white text-[#059669] shadow-sm border border-[#A7F3D0]" 
+                : isSuspicious 
+                ? "bg-white text-amber-600 shadow-sm border border-[#FDE68A]" 
+                : isRecalled 
+                ? "bg-white text-red-600 shadow-sm border border-red-200" 
+                : "bg-white text-orange-600 shadow-sm border border-orange-200";
+
+              const titleColor = isVerifyingHash 
+                ? "text-slate-800" 
+                : isActive 
+                ? "text-[#065F46]" 
+                : isSuspicious 
+                ? "text-[#92400E]" 
+                : isRecalled 
+                ? "text-red-900" 
+                : "text-orange-900";
+
+              const subtitleColor = isVerifyingHash 
+                ? "text-slate-500" 
+                : isActive 
+                ? "text-[#059669]" 
+                : isSuspicious 
+                ? "text-[#B45309]" 
+                : isRecalled 
+                ? "text-red-700" 
+                : "text-orange-700";
+
+              const title = isVerifyingHash 
+                ? "Computing Cryptographic Proofs..." 
+                : isActive 
+                ? "Certificate of Authenticity" 
+                : isSuspicious 
+                ? "Warning: Supply Chain Divergence Detected" 
+                : isRecalled 
+                ? "Official Batch Recall Notice" 
+                : "Batch Expired Notice";
+
+              const subtitle = isVerifyingHash 
+                ? "Syncing with Polygon Amoy network state..." 
+                : isActive 
+                ? "This medicine batch is cryptographically verified, untampered, and authentic." 
+                : isSuspicious 
+                ? "An unauthorized custodian was detected in the supply chain. Authenticity cannot be guaranteed." 
+                : isRecalled 
+                ? "This medicine batch has been officially recalled by the manufacturer. Do not dispense or consume." 
+                : "This medicine batch has passed its expiration date. Do not dispense or consume.";
+
+              return (
+                <div className={`mb-8 p-6 md:p-10 rounded-3xl border shadow-sm flex flex-col md:flex-row items-center justify-between gap-8 transition-colors duration-700 ${cardBg}`}>
+                  <div className="flex items-center gap-6">
+                    <div className={`relative flex items-center justify-center w-20 h-20 rounded-2xl ${iconBoxBg}`}>
+                      {isVerifyingHash ? (
+                        <HardDrives size={40} className="animate-pulse" />
+                      ) : isActive ? (
+                        <SealCheck size={48} weight="fill" />
+                      ) : (
+                        <Warning size={40} weight="fill" />
+                      )}
+                       
+                      {!isVerifyingHash && isActive && (
+                        <div className="absolute inset-0 rounded-2xl border border-[#059669] animate-[spin_8s_linear_infinite] opacity-20" style={{ borderStyle: 'dashed' }} />
+                      )}
+                    </div>
+                    <div>
+                      <h2 className={`text-2xl md:text-3xl font-serif font-bold mb-2 ${titleColor}`}>
+                        {title}
+                      </h2>
+                      <p className={`text-base ${subtitleColor}`}>
+                        {subtitle}
+                      </p>
+                    </div>
+                  </div>
+                  
+                  {!isVerifyingHash && (
+                    <div className="flex-shrink-0 text-left lg:text-right w-full lg:w-auto">
+                      <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mb-1">Contract Address</p>
+                      <p className="font-mono text-xs opacity-90 mb-3">{truncateAddress(data.contractAddress || "0x3E8bBd12a1A614d131Fc227106D2697Df1C0C072")}</p>
+                      <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mb-1">Genesis Block</p>
+                      <p className="font-mono text-xs opacity-90">#3849201</p>
+                    </div>
+                  )}
                 </div>
-                <div>
-                  <h2 className={`text-2xl md:text-3xl font-serif font-bold mb-2 ${
-                    isVerifyingHash ? "text-slate-800" :
-                    data.metadata.status === "Active" ? "text-[#065F46]" : "text-red-900"
-                  }`}>
-                    {isVerifyingHash ? "Computing Cryptographic Proofs..." 
-                     : data.metadata.status === "Active" ? "Certificate of Authenticity"
-                     : "Verification Failed"}
-                  </h2>
-                  <p className={`text-base ${
-                    isVerifyingHash ? "text-slate-500" :
-                    data.metadata.status === "Active" ? "text-[#059669]" : "text-red-700"
-                  }`}>
-                    {isVerifyingHash ? "Syncing with Polygon Amoy network state..." : 
-                     data.metadata.status === "Active" ? "This medicine batch is cryptographically verified and safe." : 
-                     "This batch has a compromised supply chain. Do not consume."}
-                  </p>
-                </div>
-              </div>
-              
-              {!isVerifyingHash && (
-                <div className="hidden lg:block text-right border-l border-current opacity-20 pl-8 ml-4">
-                   {/* Decorative border */}
-                </div>
-              )}
-              {!isVerifyingHash && (
-                <div className="flex-shrink-0 text-left lg:text-right w-full lg:w-auto">
-                  <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mb-1">Contract Address</p>
-                  <p className="font-mono text-xs opacity-90 mb-3">{truncateAddress(data.contractAddress || "0x5FbDB2315678afecb367f032d93F642f64180aa3")}</p>
-                  <p className="text-[10px] font-bold uppercase tracking-widest opacity-60 mb-1">Genesis Block</p>
-                  <p className="font-mono text-xs opacity-90">#3849201</p>
-                </div>
-              )}
-            </div>
+              );
+            })()}
 
             {/* Divergence Alert & Recalls */}
             {!isVerifyingHash && data.metadata.status === "Suspicious" && data.divergence && (

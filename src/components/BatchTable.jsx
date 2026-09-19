@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import StatusBadge from "./StatusBadge.jsx";
 import { truncateAddress } from "../lib/utils.js";
 import { ArrowsClockwise, WarningCircle } from "@phosphor-icons/react";
@@ -7,6 +7,7 @@ import QRModal from "./QRModal.jsx";
 
 export default function BatchTable({ batches = [], loading = false, error = null, onRetry = null, onRecall }) {
   const [qrBatch, setQrBatch] = useState(null);
+  const navigate = useNavigate();
 
   if (loading) {
     return (
@@ -85,11 +86,16 @@ export default function BatchTable({ batches = [], loading = false, error = null
         </thead>
         <tbody>
           {batches.map((b) => (
-            <tr key={b.batch_id}>
+            <tr 
+              key={b.batch_id}
+              className="cursor-pointer hover:bg-slate-50/80 transition-colors"
+              onClick={() => navigate(`/verify/${b.batch_id}`)}
+            >
               <td className="font-mono text-xs">
                 <Link
                   to={`/verify/${b.batch_id}`}
                   className="text-primary-600 hover:text-primary-800 hover:underline font-medium"
+                  onClick={(e) => e.stopPropagation()}
                 >
                   {b.batch_id}
                 </Link>
@@ -105,13 +111,17 @@ export default function BatchTable({ batches = [], loading = false, error = null
                     to={`/verify/${b.batch_id}`}
                     className="px-2.5 py-1.5 text-xs font-medium text-primary-600 hover:bg-primary-50 rounded-md transition-colors"
                     title="View provenance"
+                    onClick={(e) => e.stopPropagation()}
                   >
                     Verify
                   </Link>
                   <button
                     className="px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-md transition-colors"
                     title="Show QR code"
-                    onClick={() => setQrBatch(b.batch_id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setQrBatch(b.batch_id);
+                    }}
                   >
                     QR
                   </button>
@@ -119,7 +129,10 @@ export default function BatchTable({ batches = [], loading = false, error = null
                     <button
                       className="px-2.5 py-1.5 text-xs font-medium text-status-recalled hover:bg-status-recalled-bg rounded-md transition-colors"
                       title="Recall batch"
-                      onClick={() => onRecall(b.batch_id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onRecall(b.batch_id);
+                      }}
                     >
                       Recall
                     </button>

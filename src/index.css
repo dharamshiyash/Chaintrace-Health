@@ -6,7 +6,7 @@
 
 @layer base {
   body {
-    @apply bg-slate-50 text-slate-900 antialiased font-sans;
+    @apply bg-[#F1F1ED] text-slate-900 antialiased font-sans;
   }
   
   ::selection {

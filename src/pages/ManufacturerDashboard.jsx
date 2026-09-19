@@ -4,10 +4,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { listBatches, getOffenders, registerBatchApi, recordEvent } from "../lib/api.js";
 import { registerBatchOnChain, parseWeb3Error, getConnectedAccount, connectWallet } from "../lib/contract.js";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, ShieldWarning, Cube, Factory, Link as LinkIcon, ChartLineUp, WarningCircle, CheckCircle, ShieldPlus, Users, ArrowsClockwise } from "@phosphor-icons/react";
+import { X, ShieldWarning, Cube, Factory, Link as LinkIcon, ChartLineUp, WarningCircle, CheckCircle, ShieldPlus, Users, ArrowsClockwise, QrCode } from "@phosphor-icons/react";
 import BatchTable from "../components/BatchTable.jsx";
 import { truncateAddress } from "../lib/utils.js";
 import BatchRegistrationDrawer from "../components/BatchRegistrationDrawer.jsx";
+import ProfileQRModal from "../components/ProfileQRModal.jsx";
 import { AreaChart, Area, ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
 
 const RECALL_REASONS = ["Confirmed Expiry", "Probable Expiry", "Quality Defect", "Contamination", "Other"];
@@ -21,7 +22,7 @@ function Toast({ msg, type, txHash, onDismiss }) {
         initial={{ opacity: 0, x: 50, scale: 0.9 }} 
         animate={{ opacity: 1, x: 0, scale: 1 }} 
         exit={{ opacity: 0, x: 50, scale: 0.9 }}
-        className={`fixed bottom-6 right-6 p-4 rounded-xl shadow-lg flex items-start gap-4 z-50 max-w-md border ${
+        className={`fixed bottom-6 right-6 p-4 rounded-xl shadow-lg flex items-start gap-4 z-[9999] max-w-md border ${
           type === 'success' ? 'bg-white border-emerald-200 text-slate-800' :
           'bg-white border-red-200 text-slate-800'
         }`}
@@ -58,6 +59,7 @@ export default function ManufacturerDashboard() {
   const [toast, setToast] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [connectedAccount, setConnectedAccount] = useState(null);
+  const [isProfileQrOpen, setIsProfileQrOpen] = useState(false);
   const qc = useQueryClient();
 
   useEffect(() => {
@@ -219,7 +221,7 @@ export default function ManufacturerDashboard() {
   }
 
   return (
-    <main className="bg-[#F9F9F7] min-h-[calc(100vh-64px)] pb-24 font-sans text-slate-800">
+    <main className="bg-[#F1F1ED] min-h-[calc(100vh-64px)] pb-24 font-sans text-slate-800">
       <Toast msg={toast?.msg} type={toast?.type} txHash={toast?.txHash} onDismiss={() => setToast(null)} />
       
       <BatchRegistrationDrawer 
@@ -259,6 +261,15 @@ export default function ManufacturerDashboard() {
               <span className={`w-2 h-2 rounded-full ${connectedAccount ? "bg-green-500" : "bg-amber-400"}`}></span>
               {connectedAccount ? truncateAddress(connectedAccount, 6, 4) : "Connect Wallet"}
             </div>
+            <button
+              type="button"
+              onClick={() => setIsProfileQrOpen(true)}
+              className="px-3 py-3 sm:py-2 border border-slate-200 hover:border-purple-300 rounded-xl bg-white shadow-sm text-sm font-medium text-slate-700 flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+              title="View Manufacturer Node Profile QR"
+            >
+              <QrCode size={18} className="text-purple-600" />
+              <span className="hidden sm:inline text-xs">Node QR</span>
+            </button>
             <button onClick={() => setIsDrawerOpen(true)} className="btn btn-primary text-sm px-6 py-3 justify-center bg-purple-600 hover:bg-purple-700">
               <Cube size={18} weight="fill" /> Issue New Batch
             </button>
@@ -516,6 +527,14 @@ export default function ManufacturerDashboard() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <ProfileQRModal 
+        isOpen={isProfileQrOpen}
+        onClose={() => setIsProfileQrOpen(false)}
+        roleName="Origin Pharmaceutical Manufacturer Node"
+        address={connectedAccount || "0x3E8bBd12a1A614d131Fc227106D2697Df1C0C072"}
+        roleType="manufacturer"
+      />
     </main>
   );
 }

@@ -6,6 +6,13 @@ import { X, Camera, UploadSimple, Image as ImageIcon, WarningCircle } from "@pho
 function extractBatchId(rawText) {
   if (!rawText) return "";
   const text = rawText.trim();
+  // If it is an Ethereum address or contains one, return the address directly
+  const ethMatch = text.match(/^0x[a-fA-F0-9]{40}$/);
+  if (ethMatch) return ethMatch[0];
+  if (text.startsWith("ethereum:")) {
+    const addr = text.replace("ethereum:", "").split(/[@?]/)[0];
+    if (/^0x[a-fA-F0-9]{40}$/.test(addr)) return addr;
+  }
   try {
     const url = new URL(text);
     const parts = url.pathname.split("/").filter(Boolean);
@@ -117,7 +124,7 @@ export default function QRScanner({ onScan, onClose }) {
 
   return (
     <div 
-      className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-[1000] p-4" 
+      className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-[1200] p-4" 
       onClick={onClose} 
       role="dialog" 
       aria-modal="true"

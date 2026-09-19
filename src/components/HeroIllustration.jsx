@@ -35,6 +35,11 @@ export default function HeroIllustration({ className = "" }) {
       pathLength: 1, 
       opacity: 1, 
       transition: { duration: 2, ease: "easeInOut" } 
+    },
+    show: { 
+      pathLength: 1, 
+      opacity: 1, 
+      transition: { duration: 2, ease: "easeInOut" } 
     }
   };
 

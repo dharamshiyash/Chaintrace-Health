@@ -3,9 +3,10 @@ import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { listBatches } from "../lib/api.js";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Handshake, Prescription, Camera, ArrowRight, Link as LinkIcon, CheckCircle, WarningCircle, Pill, Package, Warning, Stethoscope } from "@phosphor-icons/react";
+import { X, Handshake, Prescription, Camera, ArrowRight, Link as LinkIcon, CheckCircle, WarningCircle, Pill, Package, Warning, Stethoscope, QrCode } from "@phosphor-icons/react";
 import BatchTable from "../components/BatchTable.jsx";
 import QRScanner from "../components/QRScanner.jsx";
+import ProfileQRModal from "../components/ProfileQRModal.jsx";
 
 function Toast({ msg, type, onDismiss }) {
   if (!msg) return null;
@@ -15,7 +16,7 @@ function Toast({ msg, type, onDismiss }) {
         initial={{ opacity: 0, x: 50, scale: 0.9 }} 
         animate={{ opacity: 1, x: 0, scale: 1 }} 
         exit={{ opacity: 0, x: 50, scale: 0.9 }}
-        className={`fixed bottom-6 right-6 p-4 rounded-xl shadow-lg flex items-start gap-4 z-50 max-w-sm border ${
+        className={`fixed bottom-6 right-6 p-4 rounded-xl shadow-lg flex items-start gap-4 z-[9999] max-w-sm border ${
           type === 'success' ? 'bg-white border-status-active/20 text-slate-800' :
           'bg-white border-status-recalled/20 text-slate-800'
         }`}
@@ -38,6 +39,7 @@ export default function PharmacyDashboard() {
   const [toast, setToast] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [scanningFor, setScanningFor] = useState(null);
+  const [isProfileQrOpen, setIsProfileQrOpen] = useState(false);
   const qc = useQueryClient();
 
   function showToast(msg, type = "success") {
@@ -91,7 +93,7 @@ export default function PharmacyDashboard() {
   }
 
   return (
-    <main className="bg-[#F9F9F7] min-h-[calc(100vh-64px)] pb-24 font-sans text-slate-800">
+    <main className="bg-[#F1F1ED] min-h-[calc(100vh-64px)] pb-24 font-sans text-slate-800">
       <Toast msg={toast?.msg} type={toast?.type} onDismiss={() => setToast(null)} />
 
       <motion.div 
@@ -110,10 +112,16 @@ export default function PharmacyDashboard() {
             <p className="text-slate-500 font-medium text-lg">Manage patient dispensation, verify stock authenticity, and update inventory.</p>
           </div>
           <div className="flex items-center gap-3">
-            <div className="hidden md:flex px-4 py-2 border border-slate-200 rounded-xl bg-white shadow-sm text-sm font-mono text-slate-700 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsProfileQrOpen(true)}
+              className="px-4 py-2 border border-slate-200 hover:border-emerald-400 rounded-xl bg-white shadow-sm text-sm font-mono text-slate-700 flex items-center gap-2 transition-all hover:bg-slate-50 cursor-pointer"
+              title="Click to view and share Pharmacy Node Profile QR"
+            >
               <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
               0x9fC...2a1
-            </div>
+              <QrCode size={16} className="text-slate-400" />
+            </button>
           </div>
         </div>
 
@@ -149,7 +157,7 @@ export default function PharmacyDashboard() {
                 <div className="p-2 bg-white/10 text-white rounded-lg"><Prescription size={20} weight="duotone" /></div>
               </div>
               <div className="relative z-10">
-                <div className="text-4xl font-bold font-serif">{batches ? batches.filter(b => b.stage === "Exception").length : 0}</div>
+                <div className="text-4xl font-bold font-serif">{batches ? batches.filter(b => b.stage === "Delivered" || b.status === "Delivered").length : 0}</div>
                 <div className="text-xs font-medium text-emerald-200 mt-1">Successfully delivered to patients</div>
               </div>
             </div>
@@ -293,6 +301,14 @@ export default function PharmacyDashboard() {
           />
         )}
       </AnimatePresence>
+
+      <ProfileQRModal 
+        isOpen={isProfileQrOpen}
+        onClose={() => setIsProfileQrOpen(false)}
+        roleName="Authorized Healthcare / Pharmacy Node"
+        address="0x9fC97E4A860F5F6873523f03b51e50882eFF12a1"
+        roleType="pharmacy"
+      />
     </main>
   );
 }

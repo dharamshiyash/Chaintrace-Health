@@ -210,8 +210,8 @@ export default function Landing() {
                     animate={{ scale: [1, 0.9, 1], opacity: [0.6, 0.3, 0.6] }}
                     transition={{ repeat: Infinity, duration: 6, ease: "easeInOut" }}
                   />
-                  {/* Greatly enlarged image to fit the inner ring */}
-                  <HeroIllustration className="w-[160%] h-auto relative z-10 transform scale-125" />
+                  {/* Enlarged illustration to fit the inner ring */}
+                  <HeroIllustration className="w-[130%] h-auto relative z-10 transform scale-110" />
                 </motion.div>
               </motion.div>
             </motion.div>
