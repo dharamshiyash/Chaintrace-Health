@@ -78,3 +78,50 @@ export async function measureRead(label, readFn) {
   // Return result with perf metadata for API to log
   return { result, executionMs };
 }
+
+// Writable contract instance using deployer wallet if private key is configured
+let signer = null;
+export let writableContract = null;
+
+if (process.env.DEPLOYER_PRIVATE_KEY && contractAddress && contractAbi.length > 0) {
+  try {
+    signer = new ethers.Wallet(process.env.DEPLOYER_PRIVATE_KEY, provider);
+    writableContract = new ethers.Contract(contractAddress, contractAbi, signer);
+  } catch (err) {
+    console.warn("Notice: Writable contract could not be initialized:", err.message);
+  }
+}
+
+/**
+ * Execute on-chain recall if backend signer is configured
+ */
+export async function executeRecallOnChain(batchId, reason) {
+  if (!writableContract) {
+    return null;
+  }
+  try {
+    const tx = await writableContract.recallBatch(batchId, reason);
+    const receipt = await tx.wait(1);
+    return receipt.hash;
+  } catch (err) {
+    console.warn(`Notice: On-chain recall execution skipped for ${batchId}:`, err.message);
+    return null;
+  }
+}
+
+/**
+ * Execute on-chain supply chain event if backend signer is configured
+ */
+export async function executeEventOnChain(batchId, role, location) {
+  if (!writableContract) {
+    return null;
+  }
+  try {
+    const tx = await writableContract.addSupplyChainEvent(batchId, role, location);
+    const receipt = await tx.wait(1);
+    return receipt.hash;
+  } catch (err) {
+    console.warn(`Notice: On-chain event execution skipped for ${batchId}:`, err.message);
+    return null;
+  }
+}

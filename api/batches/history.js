@@ -1,5 +1,5 @@
 import localDb from "../_lib/db.js";
-import { getRequesterContext, canAccessBatch, deriveRoleStatus } from "../_lib/visibilityService.js";
+import { getRequesterContext, canAccessBatch } from "../_lib/visibilityService.js";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {
@@ -22,25 +22,32 @@ export default async function handler(req, res) {
     const events = localDb.getBatchEvents(cleanId);
     const requester = getRequesterContext(req);
 
-    // SECURITY & AUTHORIZATION: Enforce organization-level access control
+    // Authorization check
     if (!canAccessBatch(batch, requester, events)) {
       return res.status(403).json({
-        error: "Access denied. Your organization is not authorized to access this batch.",
+        error: "Forbidden. Your organization is not authorized to view this batch history.",
       });
     }
 
-    const derived = deriveRoleStatus(batch, requester, events);
-    const enriched = {
-      ...batch,
-      ...derived,
-      status: batch.status, // preserve canonical status
-      display_status: derived.view_status,
-      events,
-    };
+    const profiles = localDb.getAllProfiles();
+    const profileMap = {};
+    profiles.forEach((p) => {
+      profileMap[p.address.toLowerCase()] = p.org_name;
+    });
 
-    return res.status(200).json(enriched);
+    const enriched = events.map((e) => ({
+      ...e,
+      orgName: profileMap[e.actor.toLowerCase()] || e.actor,
+    }));
+
+    return res.status(200).json({
+      batch_id: cleanId,
+      medicine_name: batch.medicine_name,
+      status: batch.status,
+      history: enriched,
+    });
   } catch (error) {
-    console.error(`Error fetching batch ${cleanId}:`, error);
+    console.error(`Error fetching history for ${cleanId}:`, error);
     return res.status(500).json({ error: "Internal server error", details: error.message });
   }
 }

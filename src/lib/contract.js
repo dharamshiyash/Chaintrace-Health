@@ -194,3 +194,83 @@ export async function registerBatchOnChain(form) {
     location,
   };
 }
+
+/**
+ * Performs a REAL on-chain transaction to recall a batch.
+ */
+export async function recallBatchOnChain(batchId, reason) {
+  const cleanId = batchId?.trim();
+  const cleanReason = reason?.trim();
+
+  if (!cleanId) throw new Error("Batch ID is required for recall.");
+  if (!cleanReason) throw new Error("Recall reason is required.");
+
+  await ensureAmoyNetwork();
+
+  const provider = new ethers.BrowserProvider(window.ethereum);
+  const signer = await provider.getSigner();
+  const contract = new ethers.Contract(CONTRACT_ADDRESS, chainTraceHealthAbi, signer);
+
+  const tx = await contract.recallBatch(cleanId, cleanReason);
+  const receipt = await tx.wait(1);
+
+  return {
+    txHash: receipt.hash,
+    receipt,
+    batchId: cleanId,
+    reason: cleanReason,
+  };
+}
+
+/**
+ * Records a custody change event on the blockchain.
+ */
+export async function addSupplyChainEventOnChain(batchId, role, location) {
+  const cleanId = batchId?.trim();
+  const cleanRole = role?.trim();
+  const cleanLoc = location?.trim();
+
+  if (!cleanId) throw new Error("Batch ID is required.");
+  if (!cleanRole) throw new Error("Role is required.");
+  if (!cleanLoc) throw new Error("Location is required.");
+
+  await ensureAmoyNetwork();
+
+  const provider = new ethers.BrowserProvider(window.ethereum);
+  const signer = await provider.getSigner();
+  const contract = new ethers.Contract(CONTRACT_ADDRESS, chainTraceHealthAbi, signer);
+
+  const tx = await contract.addSupplyChainEvent(cleanId, cleanRole, cleanLoc);
+  const receipt = await tx.wait(1);
+
+  return {
+    txHash: receipt.hash,
+    receipt,
+    batchId: cleanId,
+    role: cleanRole,
+    location: cleanLoc,
+  };
+}
+
+/**
+ * Whitelist an approved partner address on the blockchain.
+ */
+export async function addApprovedPartnerOnChain(partnerAddress) {
+  const cleanAddr = partnerAddress?.trim();
+  if (!cleanAddr) throw new Error("Partner address is required.");
+
+  await ensureAmoyNetwork();
+
+  const provider = new ethers.BrowserProvider(window.ethereum);
+  const signer = await provider.getSigner();
+  const contract = new ethers.Contract(CONTRACT_ADDRESS, chainTraceHealthAbi, signer);
+
+  const tx = await contract.addApprovedPartner(cleanAddr);
+  const receipt = await tx.wait(1);
+
+  return {
+    txHash: receipt.hash,
+    receipt,
+    partner: cleanAddr,
+  };
+}

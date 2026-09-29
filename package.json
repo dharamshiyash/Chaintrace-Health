@@ -8,7 +8,7 @@
     "api:local": "node server.js",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "hardhat test",
+    "test": "hardhat test --network hardhat",
     "deploy:local": "hardhat run scripts/deploy.js --network localhost",
     "seed:local": "hardhat run scripts/seed.js --network localhost",
     "deploy:amoy": "hardhat run scripts/deploy.js --network amoy",

@@ -10,3 +10,4 @@ deployments/*.json
 !deployments/.gitkeep
 reports/*.json
 !reports/.gitkeep
+data/
