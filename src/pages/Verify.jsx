@@ -400,7 +400,7 @@ export default function Verify() {
                 <h2 className="text-2xl font-serif font-bold text-slate-900">Geographical Route & Ledger Events</h2>
               </div>
               <div className="p-4 md:p-8">
-                <EventTimeline history={data.history} />
+                <EventTimeline history={data.history} batchStatus={data.metadata?.status} />
               </div>
             </div>
 

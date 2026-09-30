@@ -77,15 +77,15 @@ export default async function handler(req, res) {
       status = "Suspicious";
     }
 
-    // 2. Get batch history from on-chain with DB fallback
-    let history = [];
+    // 2. Get batch history by reconciling on-chain events and authoritative DB events
+    let onChainHistory = [];
     let historyMs = 0;
     try {
       const readResult = await measureRead(`getBatchHistory(${cleanId})`, () =>
         contract.getBatchHistory(cleanId)
       );
       historyMs = readResult.executionMs;
-      history = readResult.result.map((h) => ({
+      onChainHistory = (readResult.result || []).map((h) => ({
         actor: h.actor,
         role: typeof h.role === "number" || typeof h.role === "bigint" ? String(h.role) : h.role,
         timestamp: Number(h.timestamp),
@@ -93,27 +93,84 @@ export default async function handler(req, res) {
         authorized: Boolean(h.authorized),
       }));
     } catch {
-      // Use local database event history
-      if (dbEvents && dbEvents.length > 0) {
-        history = dbEvents.map((e) => ({
+      onChainHistory = [];
+    }
+
+    let history = [];
+
+    if (dbEvents && dbEvents.length > 0) {
+      // Database has full lifecycle records (genesis, dispatches, receives, recalls)
+      history = dbEvents.map((e, idx) => {
+        const onChainMatch = onChainHistory[idx] || onChainHistory.find((och) =>
+          och.actor?.toLowerCase() === e.actor?.toLowerCase() &&
+          Math.abs(Number(och.timestamp) - Number(e.timestamp)) < 3600
+        );
+
+        return {
           actor: e.actor,
-          role: e.role,
-          timestamp: Number(e.timestamp),
-          location: e.location,
-          authorized: Boolean(e.authorized),
+          role: e.role || onChainMatch?.role || "Custodian",
+          action: e.action || (idx === 0 ? "REGISTERED" : "CUSTODY_HANDOFF"),
+          location: e.location || onChainMatch?.location || "Logistics Facility",
+          authorized: onChainMatch ? Boolean(onChainMatch.authorized) : Boolean(e.authorized),
+          timestamp: Number(e.timestamp || onChainMatch?.timestamp || Math.floor(Date.now() / 1000)),
           txHash: e.tx_hash,
-        }));
-      } else {
-        history = [
-          {
-            actor: manufacturer || dbBatch?.manufacturer || "0x05Db076e1f33575447AC32E3b5401a90e77a9cFD",
-            role: "Manufacturer",
-            timestamp: Number(mfgDate || dbBatch?.manufacturing_date || Math.floor(Date.now() / 1000)),
-            location: "Manufacturing Facility",
-            authorized: true,
-          },
-        ];
+        };
+      });
+
+      // If on-chain has more events than dbEvents, append them
+      if (onChainHistory.length > dbEvents.length) {
+        for (let i = dbEvents.length; i < onChainHistory.length; i++) {
+          const och = onChainHistory[i];
+          history.push({
+            actor: och.actor,
+            role: och.role,
+            action: i === 0 ? "REGISTERED" : "CUSTODY_HANDOFF",
+            location: och.location,
+            authorized: Boolean(och.authorized),
+            timestamp: Number(och.timestamp),
+            txHash: null,
+          });
+        }
       }
+    } else if (onChainHistory.length > 0) {
+      history = onChainHistory.map((och, idx) => ({
+        actor: och.actor,
+        role: och.role,
+        action: idx === 0 ? "REGISTERED" : "CUSTODY_HANDOFF",
+        location: och.location,
+        authorized: Boolean(och.authorized),
+        timestamp: Number(och.timestamp),
+        txHash: null,
+      }));
+    } else {
+      history = [
+        {
+          actor: manufacturer || dbBatch?.manufacturer || "0x05Db076e1f33575447AC32E3b5401a90e77a9cFD",
+          role: "Manufacturer",
+          action: "REGISTERED",
+          timestamp: Number(mfgDate || dbBatch?.manufacturing_date || Math.floor(Date.now() / 1000)),
+          location: "Manufacturing Facility",
+          authorized: true,
+          txHash: null,
+        },
+      ];
+    }
+
+    // Append official recall event if batch is Recalled but history doesn't contain a RECALLED event
+    if (status === "Recalled" && !history.some((e) => e.action === "RECALLED")) {
+      const recalledBy = dbBatch?.recalled_by || manufacturer || dbBatch?.manufacturer || "0x05Db076e1f33575447AC32E3b5401a90e77a9cFD";
+      const recalledAt = dbBatch?.recalled_at
+        ? Math.floor(new Date(dbBatch.recalled_at).getTime() / 1000)
+        : Math.floor(Date.now() / 1000);
+      history.push({
+        actor: recalledBy,
+        role: "Manufacturer",
+        action: "RECALLED",
+        location: `Official Recall Notice: ${recallReason || "Quality Defect"}`,
+        authorized: true,
+        timestamp: recalledAt,
+        txHash: null,
+      });
     }
 
     // 3. Get divergence point if suspicious
@@ -166,6 +223,7 @@ export default async function handler(req, res) {
         "0x" + crypto.createHash("sha256").update(hashStr).digest("hex").substring(0, 64);
       return {
         ...h,
+        action: h.action,
         txHash: mockTxHash,
         orgName: profileMap[h.actor?.toLowerCase()] || h.actor,
       };
