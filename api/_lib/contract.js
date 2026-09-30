@@ -3,7 +3,10 @@ import fs from "fs";
 import path from "path";
 
 // Initialize Provider — prefer local node when HARDHAT_NETWORK=localhost
-const network = process.env.HARDHAT_NETWORK || "localhost";
+const isVercel = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.NODE_ENV === "production");
+const defaultNetwork = isVercel ? "amoy" : "amoy";
+const network = process.env.HARDHAT_NETWORK || defaultNetwork;
+
 const rpcUrl =
   network === "localhost"
     ? (process.env.VITE_LOCAL_RPC_URL || "http://127.0.0.1:8545")
@@ -19,24 +22,43 @@ export const provider = new ethers.JsonRpcProvider(rpcUrl, networkConfig, {
   batchMaxCount: 1,
 });
 
-// Read deployed artifact
-const deploymentEnv = process.env.HARDHAT_NETWORK || "localhost";
-const deploymentPath = path.resolve(process.cwd(), `deployments/${deploymentEnv}.json`);
-const abiPath = path.resolve(process.cwd(), `deployments/ChainTraceHealth.abi.json`);
+// Known deployed address on Amoy from deployments/amoy.json
+const AMOY_CONTRACT_ADDRESS = "0x3E8bBd12a1A614d131Fc227106D2697Df1C0C072";
 
-let contractAddress = "";
-let contractAbi = [];
+// Embedded minimal ABI ensuring contract is always operational even if filesystem cannot read ABI
+const FALLBACK_ABI = [
+  "function verifyBatch(string batchId) external view returns (bool exists, string medicineName, string bId, uint256 manufacturingDate, uint256 expiryDate, uint256 quantity, address manufacturer, uint8 status, string recallReason)",
+  "function getBatchHistory(string batchId) external view returns (tuple(address actor, string role, uint256 timestamp, string location, bool authorized)[])",
+  "function recallBatch(string batchId, string reason) external",
+  "function addSupplyChainEvent(string batchId, string role, string location) external",
+  "function getDivergencePoint(string batchId) external view returns (address lastAuthorized, address firstUnauthorized)",
+  "function addApprovedPartner(address partner) external",
+  "function isApprovedPartner(address custodian, address partner) external view returns (bool)",
+  "function getAllBatchHashes() external view returns (bytes32[])"
+];
+
+let contractAddress = network === "localhost" ? "0x5FbDB2315678afecb367f032d93F642f64180aa3" : AMOY_CONTRACT_ADDRESS;
+let contractAbi = FALLBACK_ABI;
 
 try {
-  if (fs.existsSync(deploymentPath) && fs.existsSync(abiPath)) {
+  const deploymentEnv = network;
+  const deploymentPath = path.resolve(process.cwd(), `deployments/${deploymentEnv}.json`);
+  const abiPath = path.resolve(process.cwd(), `deployments/ChainTraceHealth.abi.json`);
+
+  if (fs.existsSync(deploymentPath)) {
     const deployment = JSON.parse(fs.readFileSync(deploymentPath, "utf8"));
-    contractAddress = deployment.contractAddress;
-    contractAbi = JSON.parse(fs.readFileSync(abiPath, "utf8"));
-  } else {
-    console.warn(`Deployment file not found at ${deploymentPath}`);
+    if (deployment && deployment.contractAddress) {
+      contractAddress = deployment.contractAddress;
+    }
+  }
+  if (fs.existsSync(abiPath)) {
+    const parsedAbi = JSON.parse(fs.readFileSync(abiPath, "utf8"));
+    if (Array.isArray(parsedAbi) && parsedAbi.length > 0) {
+      contractAbi = parsedAbi;
+    }
   }
 } catch (error) {
-  console.error("Error loading deployment info:", error);
+  console.warn("Notice: Loaded fallback contract configuration:", error.message);
 }
 
 // Read-only contract instance
