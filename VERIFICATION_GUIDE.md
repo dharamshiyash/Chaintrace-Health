@@ -40,13 +40,13 @@ ChainTrace Health implements cryptographic provenance with zero-trust organizati
 1. **Authentic Batch Verification:**
    - Go to [https://chaintrace-health.vercel.app/](https://chaintrace-health.vercel.app/) or click **Verify Batch**.
    - Enter `BATCH-MED-2024-001` in the input field and click **Verify Authenticity** (or click the quick-select chip).
-   - **Expected Result:** A green **VERIFIED ON-CHAIN** badge appears with contract address linking to PolygonScan. Timeline displays 4 chronological steps from Origin Node to Retail Dispensation. Zero divergence points.
+   - **Expected Result:** A green **VERIFIED ON-CHAIN** badge appears with contract address linking to PolygonScan. Timeline displays the complete chronological supply-chain handoffs. In **Geographical Route & Ledger Events**, each milestone step displays its relevant operational badge: `Registered` for genesis, `In-Transit` for dispatches, `In Custody` for warehouse/pharmacy intake, and `Dispensed` for retail dispensation (replacing confusing generic "Active" tags). Zero divergence points.
 2. **Compromised Batch & Divergence Point:**
    - Enter `BATCH-MED-2024-003` and click **Verify Authenticity**.
-   - **Expected Result:** Red **UNAUTHORIZED CUSTODIAN DETECTED** banner. Displays the exact Divergence Point where an unauthorized intermediary (`0x96ca7fdbf427c815fb50d751b69dd86fe10f1ff1`) intercepted custody.
+   - **Expected Result:** Red **UNAUTHORIZED CUSTODIAN DETECTED** banner. Displays the exact Divergence Point where custody diverged to unauthorized node `0x96ca7fdbf427c815fb50d751b69dd86fe10f1ff1`. The intercepted ledger event is highlighted with an amber **Unauthorized** badge.
 3. **Recalled Batch Alert:**
    - Enter `BATCH-MED-2024-002`.
-   - **Expected Result:** Displays a prominent **CRITICAL RECALL ISSUED** alert with the specific reason: *"Microbial contamination detected in packaging"*.
+   - **Expected Result:** Displays prominent red **Official Batch Recall Notice** banners with the specific reason: *"Microbial contamination detected in packaging"*. In **Geographical Route & Ledger Events**, historical transit steps show their verified milestones, and the terminal event explicitly flags the **Official Batch Recall Issued** with a red **Recalled** badge.
 4. **QR Code Verification:**
    - Click the camera icon or click **QR** next to any batch in the ledger to view and verify via QR code deep-links.
 
@@ -60,12 +60,13 @@ ChainTrace Health implements cryptographic provenance with zero-trust organizati
 2. **Partner Whitelist:**
    - In the **Partner Whitelist** panel, enter an Ethereum address (e.g. `0x2Bd8a4078832a8C3775685B643442ffA567b47f3`) and click **Authorize Node**.
    - **Expected Result:** Whitelists the address on the smart contract for authorized custody handoffs.
-3. **Custody Handoff Dispatch:**
-   - Select an active batch, choose an authorized distributor partner, enter destination, and submit dispatch.
+3. **Custody Handoff Dispatch (Live Timeline Update Test):**
+   - Select an active batch, choose an authorized distributor partner (e.g. Novartis), enter dispatch location (e.g. *"Mumbai Logistics Terminal 2"*), and submit dispatch.
+   - **Expected Result:** Submits custody handoff to the backend and ledger. Navigating to the batch's verification page immediately reflects this new dispatch milestone in **Geographical Route & Ledger Events** under *"Dispatched to Distributor at Mumbai Logistics Terminal 2"* with an **In-Transit** badge.
    - Safety check: If attempting to dispatch a recalled batch, the UI and smart contract will safely reject with *"Cannot perform operations on a recalled batch"*.
 4. **Urgent Batch Recall:**
    - In the **Emergency Recall** panel, select a batch, enter a recall reason, and click **Execute Urgent Recall**.
-   - **Expected Result:** Instantly flags the batch as `Recalled` on-chain and in the database, automatically updating downstream distributor and pharmacy dashboards.
+   - **Expected Result:** Instantly flags the batch as `Recalled` on-chain and in the database, automatically updating downstream distributor and pharmacy dashboards, and appending the official recall event to the verification timeline.
 
 ---
 
