@@ -116,10 +116,7 @@ export default function ManufacturerDashboard() {
   // Filter batches based on normalized properties
   const filteredBatches = useMemo(() => {
     if (!batches) return [];
-    if (activeTab === "All") {
-      // Normal ledger view excludes exceptions so anomalies are not mixed in
-      return batches.filter(b => !b.isException);
-    }
+    if (activeTab === "All") return batches;
     if (activeTab === "Fresh") return batches.filter(b => b.isFresh);
     if (activeTab === "In-Transit") return batches.filter(b => b.isInTransit);
     if (activeTab === "Late") return batches.filter(b => b.isLate);

@@ -71,7 +71,7 @@ export default function PharmacyDashboard() {
 
   const filteredBatches = useMemo(() => {
     if (!batches) return [];
-    if (activeTab === "All") return batches.filter(b => !b.isException);
+    if (activeTab === "All") return batches;
     if (activeTab === "Fresh") return batches.filter(b => b.isFresh);
     if (activeTab === "In-Transit") return batches.filter(b => b.isInTransit);
     if (activeTab === "Late") return batches.filter(b => b.isLate);
