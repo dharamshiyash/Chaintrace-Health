@@ -1,16 +1,21 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { createApiApp } from "./apiApp.js";
+
+function viteApiPlugin() {
+  const app = createApiApp();
+  return {
+    name: "vite-api-plugin",
+    configureServer(server) {
+      // Mount Express API directly into Vite dev server
+      server.middlewares.use(app);
+    },
+  };
+}
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), viteApiPlugin()],
   server: {
     port: 5173,
-    proxy: {
-      // Forward all /api/* requests to the local Express API server
-      "/api": {
-        target: "http://localhost:3001",
-        changeOrigin: true,
-      },
-    },
   },
 });

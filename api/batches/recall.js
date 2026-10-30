@@ -1,6 +1,7 @@
 import localDb from "../_lib/db.js";
 import { getRequesterContext } from "../_lib/visibilityService.js";
 import { executeRecallOnChain } from "../_lib/contract.js";
+import { findOrHydrateBatch } from "../_lib/syncService.js";
 import { supabase, withTimeout } from "../_lib/supabase.js";
 
 export default async function handler(req, res) {
@@ -21,7 +22,7 @@ export default async function handler(req, res) {
   const cleanReason = String(reason).trim();
 
   try {
-    const existing = localDb.getBatchById(cleanId);
+    const existing = await findOrHydrateBatch(cleanId, req.body);
     if (!existing) {
       return res.status(404).json({ error: `Batch "${cleanId}" not found` });
     }

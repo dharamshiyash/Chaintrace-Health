@@ -4,10 +4,11 @@ import { useState, useEffect } from "react";
 import { verifyBatch } from "../lib/api.js";
 import { formatDate, truncateAddress, formatDateTime } from "../lib/utils.js";
 import { motion, AnimatePresence } from "framer-motion";
-import { MagnifyingGlass, Warning, Camera, ShieldCheck, SealCheck, HardDrives, ArrowRight, CheckCircle, Thermometer, Drop, MapPin, Cube, Cpu, Fingerprint } from "@phosphor-icons/react";
+import { MagnifyingGlass, Warning, Camera, ShieldCheck, SealCheck, HardDrives, ArrowRight, CheckCircle, Thermometer, Drop, MapPin, Cube, Cpu, Fingerprint, ArrowsClockwise } from "@phosphor-icons/react";
 import StatusBadge from "../components/StatusBadge.jsx";
 import DivergenceAlert from "../components/DivergenceAlert.jsx";
 import EventTimeline from "../components/EventTimeline.jsx";
+import GeographicalRoute from "../components/GeographicalRoute.jsx";
 import QRScanner from "../components/QRScanner.jsx";
 
 /* ── Skeleton ────────────────────────────────────────────────────────────── */
@@ -66,11 +67,15 @@ export default function Verify() {
   const [isScanning, setIsScanning] = useState(false);
   const [isVerifyingHash, setIsVerifyingHash] = useState(true);
 
-  const { data, isLoading, isError, error } = useQuery({
+  const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ["verify", batchId],
     queryFn: () => verifyBatch(batchId),
     enabled: !!batchId,
     retry: 1,
+    refetchInterval: 3000,
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
   });
 
   useEffect(() => {
@@ -393,13 +398,51 @@ export default function Verify() {
 
             </div>
 
-            {/* Timeline */}
+            {/* Geographical Route & Ledger Events */}
             <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden mb-8">
-              <div className="px-8 py-6 border-b border-slate-100 flex items-center gap-3">
-                <MapPin className="text-primary-600" size={24} weight="duotone" />
-                <h2 className="text-2xl font-serif font-bold text-slate-900">Geographical Route & Ledger Events</h2>
+              <div className="px-8 py-6 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-50/50">
+                <div className="flex items-center gap-3">
+                  <MapPin className="text-primary-600" size={26} weight="duotone" />
+                  <div>
+                    <h2 className="text-2xl font-serif font-bold text-slate-900">Geographical Route & Ledger Events</h2>
+                    <p className="text-xs text-slate-500 font-medium">Real-time cryptographic audit trail and waypoint handoffs across facilities.</p>
+                  </div>
+                </div>
+
+                {/* Live Sync Badge & Refresh */}
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>Live Ledger Synced</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => refetch()}
+                    disabled={isFetching}
+                    className="px-3 py-1.5 bg-white border border-slate-200 hover:border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
+                    title="Refresh Ledger Events"
+                  >
+                    <ArrowsClockwise size={14} className={isFetching ? "animate-spin text-primary-600" : ""} />
+                    {isFetching ? "Syncing..." : "Refresh"}
+                  </button>
+                </div>
               </div>
+
+              {/* Visual Geographical Transit Waypoints */}
+              <div className="p-6 md:p-8 border-b border-slate-100 bg-white">
+                <GeographicalRoute 
+                  history={data.history} 
+                  metadata={data.metadata} 
+                  divergence={data.divergence} 
+                />
+              </div>
+
+              {/* Complete Chronological Event Timeline */}
               <div className="p-4 md:p-8">
+                <div className="mb-4 px-6 flex items-center justify-between">
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400">Chronological Event Log ({data.history?.length || 0} Events)</h3>
+                  <span className="text-xs text-slate-500 font-mono">Polygon Amoy #80002</span>
+                </div>
                 <EventTimeline history={data.history} batchStatus={data.metadata?.status} />
               </div>
             </div>

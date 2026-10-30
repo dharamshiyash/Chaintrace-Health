@@ -15,6 +15,11 @@ const DISTRIBUTOR_NODES = [
   { id: "distributor-2", name: "Central Wholesale Pharma (Hub 2)", address: "0x2Bd8a4078832a8C3775685B643442ffA567b47f3" },
 ];
 
+const PHARMACY_PARTNERS = [
+  { name: "Apollo Pharmacy Delhi (Healthcare Provider 1)", address: "0x4e1E0cb18AE2f56F466513c67969cA4E864dF0F3", location: "Apollo Pharmacy, Delhi" },
+  { name: "MedPlus Retail Healthcare (Healthcare Provider 2)", address: "0x9fC97E4A860F5F6873523f03b51e50882eFF12a1", location: "MedPlus Retail Healthcare, Hyderabad" },
+];
+
 function Toast({ msg, type, onDismiss }) {
   if (!msg) return null;
   return (
@@ -119,9 +124,10 @@ export default function DistributorDashboard() {
         actor: distributorAddress,
         role: "Distributor",
       });
-      showToast(`Custody of ${receiveForm.batchId.trim()} accepted at ${receiveForm.location || "warehouse"}.`, "success");
+      showToast(`Custody of ${receiveForm.batchId.trim()} accepted into logistics warehouse.`, "success");
       setReceiveForm({ batchId: "", location: "" });
       await qc.invalidateQueries({ queryKey: ["batches"] });
+      await qc.invalidateQueries({ queryKey: ["verify"] });
       await qc.refetchQueries({ queryKey: ["batches"] });
     } catch (err) {
       showToast(err.message || "Failed to accept custody.", "error");
@@ -135,16 +141,21 @@ export default function DistributorDashboard() {
     if (!transferForm.batchId.trim() || !transferForm.toAddress.trim()) return;
     setSubmitting(true);
     try {
+      const targetPharm = PHARMACY_PARTNERS.find(p => p.address.toLowerCase() === transferForm.toAddress.toLowerCase());
+      const destOrg = targetPharm ? targetPharm.name : "Retail Pharmacy Partner";
+
       await transferBatchApi({
         batchId: transferForm.batchId.trim(),
         toAddress: transferForm.toAddress.trim(),
-        location: transferForm.location.trim() || "Dispatched to Retail Pharmacy",
+        destination_org: destOrg,
+        location: transferForm.location.trim() || (targetPharm ? targetPharm.location : `Transit to ${destOrg}`),
         actor: distributorAddress,
         role: "Distributor",
       });
-      showToast(`Batch ${transferForm.batchId.trim()} dispatched to retail pharmacy.`, "success");
+      showToast(`Batch ${transferForm.batchId.trim()} dispatched to ${destOrg.split(" ")[0]}.`, "success");
       setTransferForm({ batchId: "", toAddress: "", location: "" });
       await qc.invalidateQueries({ queryKey: ["batches"] });
+      await qc.invalidateQueries({ queryKey: ["verify"] });
       await qc.refetchQueries({ queryKey: ["batches"] });
     } catch (err) {
       showToast(err.message || "Transfer failed.", "error");
@@ -295,7 +306,16 @@ export default function DistributorDashboard() {
                 <div>
                   <label className="text-xs font-bold uppercase tracking-widest text-slate-400 block mb-2">Batch Identification</label>
                   <div className="flex gap-2">
-                    <input className="flex-1 px-5 py-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 font-mono focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all text-sm" placeholder="Enter or scan Batch ID" value={transferForm.batchId} onChange={e => setTransferForm(f => ({ ...f, batchId: e.target.value }))} required />
+                    <div className="flex-1 relative">
+                      <input className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 font-mono focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all text-sm" placeholder="Enter or scan Batch ID" value={transferForm.batchId} onChange={e => setTransferForm(f => ({ ...f, batchId: e.target.value }))} required list="distributor-batches-list" />
+                      <datalist id="distributor-batches-list">
+                        {batches?.filter(b => b.status === "Active").map(b => (
+                          <option key={b.batch_id} value={b.batch_id}>
+                            {b.medicine_name} ({b.stage || "Active"})
+                          </option>
+                        ))}
+                      </datalist>
+                    </div>
                     <button type="button" className="px-5 border border-slate-200 bg-white hover:bg-slate-50 rounded-xl transition-colors text-slate-600" onClick={() => setScanningFor("transfer")}>
                       <Camera weight="duotone" size={24} />
                     </button>
@@ -303,11 +323,29 @@ export default function DistributorDashboard() {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="text-xs font-bold uppercase tracking-widest text-slate-400 block mb-2">Pharmacy Address</label>
+                    <label className="text-xs font-bold uppercase tracking-widest text-slate-400 block mb-2">Pharmacy Destination</label>
+                    <select
+                      className="w-full px-4 py-3.5 bg-white border border-slate-200 rounded-xl text-slate-900 text-xs focus:outline-none focus:border-blue-500 mb-2"
+                      value={transferForm.toAddress}
+                      onChange={(e) => {
+                        const addr = e.target.value;
+                        const p = PHARMACY_PARTNERS.find(x => x.address.toLowerCase() === addr.toLowerCase());
+                        setTransferForm(f => ({
+                          ...f,
+                          toAddress: addr,
+                          location: p ? p.location : f.location
+                        }));
+                      }}
+                    >
+                      <option value="">Select Pharmacy Partner…</option>
+                      {PHARMACY_PARTNERS.map(p => (
+                        <option key={p.address} value={p.address}>{p.name}</option>
+                      ))}
+                    </select>
                     <div className="flex gap-2">
                       <input 
-                        className="flex-1 px-4 py-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 font-mono text-xs focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all" 
-                        placeholder="0x4e1E... (Apollo) or 0x9fC... (MedPlus)" 
+                        className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 font-mono text-xs focus:outline-none focus:border-blue-500 transition-all" 
+                        placeholder="Or custom 0x... address" 
                         value={transferForm.toAddress} 
                         onChange={e => setTransferForm(f => ({ ...f, toAddress: e.target.value }))} 
                         required 
@@ -399,6 +437,14 @@ export default function DistributorDashboard() {
               loading={isLoading} 
               error={isError ? (error?.message || "Failed to load batches") : null}
               onRetry={() => refetch()}
+              onDispatch={(batch) => {
+                setTransferForm(f => ({ ...f, batchId: batch.batch_id }));
+                document.getElementById("action-center")?.scrollIntoView({ behavior: "smooth" });
+              }}
+              onReceive={(batch) => {
+                setReceiveForm(f => ({ ...f, batchId: batch.batch_id, location: "Cold Storage Bay 1" }));
+                document.getElementById("action-center")?.scrollIntoView({ behavior: "smooth" });
+              }}
             />
           </motion.div>
         </div>

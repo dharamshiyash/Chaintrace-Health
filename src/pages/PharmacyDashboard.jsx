@@ -84,6 +84,16 @@ export default function PharmacyDashboard() {
     return batches.filter(b => b.isException || b.status === "Suspicious" || b.status === "Recalled");
   }, [batches]);
 
+  const incomingBatches = useMemo(() => {
+    if (!batches) return [];
+    return batches.filter(b => b.stage === "In-Transit" || b.isInTransit);
+  }, [batches]);
+
+  const availableBatches = useMemo(() => {
+    if (!batches) return [];
+    return batches.filter(b => (b.stage === "Fresh" || b.view_status === "Available" || b.view_status === "Active") && b.status !== "Recalled" && b.status !== "Suspicious" && !b.isInTransit);
+  }, [batches]);
+
   const counts = useMemo(() => {
     if (batches?.counts) return batches.counts;
     const all = batches?.length || 0;
@@ -109,6 +119,7 @@ export default function PharmacyDashboard() {
       showToast(`Custody of ${receiveForm.batchId.trim()} accepted into pharmacy dispensary.`, "success");
       setReceiveForm({ batchId: "", location: "" });
       await qc.invalidateQueries({ queryKey: ["batches"] });
+      await qc.invalidateQueries({ queryKey: ["verify"] });
       await qc.refetchQueries({ queryKey: ["batches"] });
     } catch (err) {
       showToast(err.message || "Failed to accept custody.", "error");
@@ -131,6 +142,7 @@ export default function PharmacyDashboard() {
       showToast(`Batch ${dispenseForm.batchId.trim()} dispensed to patient. Journey complete.`, "success");
       setDispenseForm({ batchId: "", location: "" });
       await qc.invalidateQueries({ queryKey: ["batches"] });
+      await qc.invalidateQueries({ queryKey: ["verify"] });
       await qc.refetchQueries({ queryKey: ["batches"] });
     } catch (err) {
       showToast(err.message || "Dispense failed.", "error");
@@ -271,7 +283,22 @@ export default function PharmacyDashboard() {
                 <div>
                   <label className="text-xs font-bold uppercase tracking-widest text-slate-400 block mb-2">Batch Identification</label>
                   <div className="flex gap-2">
-                    <input className="flex-1 px-5 py-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 font-mono focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all text-sm" placeholder="Enter or scan Batch ID" value={receiveForm.batchId} onChange={e => setReceiveForm(f => ({ ...f, batchId: e.target.value }))} required />
+                    <input 
+                      id="receive-batch-input"
+                      list="pharmacy-incoming-batches"
+                      className="flex-1 px-5 py-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 font-mono focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all text-sm" 
+                      placeholder="Enter or select incoming Batch ID" 
+                      value={receiveForm.batchId} 
+                      onChange={e => setReceiveForm(f => ({ ...f, batchId: e.target.value }))} 
+                      required 
+                    />
+                    <datalist id="pharmacy-incoming-batches">
+                      {incomingBatches.map(b => (
+                        <option key={b.batch_id} value={b.batch_id}>
+                          {b.medicine_name || b.name} ({b.dosage || ""}) - From: {b.current_org || "In-Transit"}
+                        </option>
+                      ))}
+                    </datalist>
                     <button type="button" className="px-5 border border-slate-200 bg-white hover:bg-slate-50 rounded-xl transition-colors text-slate-600" onClick={() => setScanningFor("receive")}>
                       <Camera weight="duotone" size={24} />
                     </button>
@@ -302,7 +329,22 @@ export default function PharmacyDashboard() {
                 <div>
                   <label className="text-xs font-bold uppercase tracking-widest text-slate-400 block mb-2">Batch Identification</label>
                   <div className="flex gap-2">
-                    <input className="flex-1 px-5 py-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 font-mono focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all text-sm" placeholder="Enter or scan Batch ID" value={dispenseForm.batchId} onChange={e => setDispenseForm(f => ({ ...f, batchId: e.target.value }))} required />
+                    <input 
+                      id="dispense-batch-input"
+                      list="pharmacy-available-batches"
+                      className="flex-1 px-5 py-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 font-mono focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all text-sm" 
+                      placeholder="Enter or select stocked Batch ID" 
+                      value={dispenseForm.batchId} 
+                      onChange={e => setDispenseForm(f => ({ ...f, batchId: e.target.value }))} 
+                      required 
+                    />
+                    <datalist id="pharmacy-available-batches">
+                      {availableBatches.map(b => (
+                        <option key={b.batch_id} value={b.batch_id}>
+                          {b.medicine_name || b.name} ({b.dosage || ""}) - In Dispensary Stock
+                        </option>
+                      ))}
+                    </datalist>
                     <button type="button" className="px-5 border border-slate-200 bg-white hover:bg-slate-50 rounded-xl transition-colors text-slate-600" onClick={() => setScanningFor("dispense")}>
                       <Camera weight="duotone" size={24} />
                     </button>
@@ -372,6 +414,22 @@ export default function PharmacyDashboard() {
                 loading={isLoading} 
                 error={isError ? (error?.message || "Failed to load batches") : null}
                 onRetry={() => refetch()}
+                onReceive={(b) => {
+                  setReceiveForm({
+                    batchId: b.batch_id,
+                    location: receiveForm.location || "Dispensary Storage Shelf B"
+                  });
+                  document.getElementById("receive-batch-input")?.focus();
+                  showToast(`Selected incoming batch ${b.batch_id} for intake.`);
+                }}
+                onDispense={(b) => {
+                  setDispenseForm({
+                    batchId: b.batch_id,
+                    location: dispenseForm.location || "Apollo Retail Counter #1"
+                  });
+                  document.getElementById("dispense-batch-input")?.focus();
+                  showToast(`Selected batch ${b.batch_id} for patient dispensation.`);
+                }}
               />
             )}
           </motion.div>

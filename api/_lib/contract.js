@@ -27,6 +27,7 @@ const AMOY_CONTRACT_ADDRESS = "0x3E8bBd12a1A614d131Fc227106D2697Df1C0C072";
 
 // Embedded minimal ABI ensuring contract is always operational even if filesystem cannot read ABI
 const FALLBACK_ABI = [
+  "function registerBatch(string batchId, string medicineName, uint256 manufacturingDate, uint256 expiryDate, uint256 quantity, string initialLocation) external",
   "function verifyBatch(string batchId) external view returns (bool exists, string medicineName, string bId, uint256 manufacturingDate, uint256 expiryDate, uint256 quantity, address manufacturer, uint8 status, string recallReason)",
   "function getBatchHistory(string batchId) external view returns (tuple(address actor, string role, uint256 timestamp, string location, bool authorized)[])",
   "function recallBatch(string batchId, string reason) external",
@@ -111,6 +112,30 @@ if (process.env.DEPLOYER_PRIVATE_KEY && contractAddress && contractAbi.length > 
     writableContract = new ethers.Contract(contractAddress, contractAbi, signer);
   } catch (err) {
     console.warn("Notice: Writable contract could not be initialized:", err.message);
+  }
+}
+
+/**
+ * Execute on-chain batch genesis registration if backend signer is configured
+ */
+export async function executeRegisterOnChain(batchId, medicineName, mfgTimestamp, expTimestamp, quantity, location) {
+  if (!writableContract) {
+    return null;
+  }
+  try {
+    const tx = await writableContract.registerBatch(
+      batchId,
+      medicineName,
+      BigInt(mfgTimestamp),
+      BigInt(expTimestamp),
+      BigInt(quantity),
+      location || "Manufacturing Facility"
+    );
+    const receipt = await tx.wait(1);
+    return receipt.hash;
+  } catch (err) {
+    console.warn(`Notice: On-chain registration execution skipped for ${batchId}:`, err.message);
+    return null;
   }
 }
 

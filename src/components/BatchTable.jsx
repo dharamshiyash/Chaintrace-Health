@@ -12,6 +12,8 @@ export default function BatchTable({
   onRetry = null,
   onRecall = null,
   onDispatch = null,
+  onReceive = null,
+  onDispense = null,
   showActions = true,
 }) {
   const [qrBatch, setQrBatch] = useState(null);
@@ -166,7 +168,19 @@ export default function BatchTable({
                         >
                           QR
                         </button>
-                        {onDispatch && !isRecalled && !isSuspicious && (displayStatus === "Active" || displayStatus === "Registered") && (
+                        {onReceive && !isRecalled && !isSuspicious && (displayStatus === "Incoming" || displayStatus === "In-Transit" || b.isInTransit) && (
+                          <button
+                            className="px-2.5 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-md transition-colors border border-emerald-200"
+                            title="Accept incoming custody"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onReceive(b);
+                            }}
+                          >
+                            Receive
+                          </button>
+                        )}
+                        {onDispatch && !isRecalled && !isSuspicious && (displayStatus === "Active" || displayStatus === "Registered" || displayStatus === "Available" || b.isFresh) && (
                           <button
                             className="px-2.5 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
                             title="Dispatch batch"
@@ -176,6 +190,18 @@ export default function BatchTable({
                             }}
                           >
                             Dispatch
+                          </button>
+                        )}
+                        {onDispense && !isRecalled && !isSuspicious && (displayStatus === "Active" || displayStatus === "Available" || b.isFresh) && (
+                          <button
+                            className="px-2.5 py-1.5 text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors"
+                            title="Dispense to patient"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onDispense(b);
+                            }}
+                          >
+                            Dispense
                           </button>
                         )}
                         {onRecall && !isRecalled && (

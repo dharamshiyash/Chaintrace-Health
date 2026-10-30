@@ -3,7 +3,15 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, Cube, CaretRight, CaretLeft, GasPump, QrCode } from "@phosphor-icons/react";
 import { QRCodeSVG } from "qrcode.react";
 
-export default function BatchRegistrationDrawer({ isOpen, onClose, onSubmit, isSubmitting }) {
+export default function BatchRegistrationDrawer({ 
+  isOpen, 
+  onClose, 
+  onSubmit, 
+  isSubmitting,
+  connectedAccount,
+  onConnectWallet,
+  existingBatchIds = []
+}) {
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({ 
     batchId: "", 
@@ -36,8 +44,11 @@ export default function BatchRegistrationDrawer({ isOpen, onClose, onSubmit, isS
     onSubmit(form);
   };
 
+  const isBatchIdDuplicate = Boolean(
+    form.batchId && existingBatchIds.some(id => String(id).trim().toUpperCase() === form.batchId.trim().toUpperCase())
+  );
   const isStep1Valid = form.medicineName && form.quantity;
-  const isStep2Valid = form.location && form.mfgDate && form.expDate && form.batchId;
+  const isStep2Valid = form.location && form.mfgDate && form.expDate && form.batchId && !isBatchIdDuplicate;
 
   return (
     <AnimatePresence>
@@ -112,7 +123,12 @@ export default function BatchRegistrationDrawer({ isOpen, onClose, onSubmit, isS
                   <motion.div key="step2" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="flex flex-col gap-5">
                     <div className="flex flex-col gap-1.5">
                       <label className="text-sm font-medium text-slate-700">Batch ID</label>
-                      <input className="input font-mono text-sm" placeholder="e.g. BATCH-001" value={form.batchId} onChange={e => setForm({...form, batchId: e.target.value.toUpperCase()})} />
+                      <input className={`input font-mono text-sm ${isBatchIdDuplicate ? 'border-rose-400 focus:border-rose-500' : ''}`} placeholder="e.g. BATCH-001" value={form.batchId} onChange={e => setForm({...form, batchId: e.target.value.toUpperCase()})} />
+                      {isBatchIdDuplicate && (
+                        <p className="text-xs text-rose-600 font-medium mt-1">
+                          Notice: Batch ID "{form.batchId}" already exists on the ledger. Please enter a unique ID.
+                        </p>
+                      )}
                     </div>
                     <div className="flex flex-col gap-1.5">
                       <label className="text-sm font-medium text-slate-700">Manufacturing Location</label>
@@ -149,6 +165,26 @@ export default function BatchRegistrationDrawer({ isOpen, onClose, onSubmit, isS
                       <div className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1"><QrCode size={16}/> Generated QR</div>
                       <QRCodeSVG value={`${typeof window !== 'undefined' ? window.location.origin : ''}/verify/${form.batchId}`} size={120} level="M" />
                       <div className="text-[10px] text-slate-400 mt-2 font-mono">Will be active post-issuance</div>
+                    </div>
+
+                    <div className="flex items-center justify-between p-3.5 bg-purple-50 rounded-xl border border-purple-100 text-xs shadow-sm">
+                      <div className="flex items-center gap-2.5 text-purple-900 font-medium">
+                        <div className={`w-2.5 h-2.5 rounded-full ${connectedAccount ? 'bg-emerald-500 shadow-sm' : 'bg-amber-400 animate-pulse'}`} />
+                        <span>
+                          {connectedAccount 
+                            ? `MetaMask Account: ${connectedAccount.slice(0, 6)}...${connectedAccount.slice(-4)}`
+                            : "MetaMask: Ready to connect"}
+                        </span>
+                      </div>
+                      {!connectedAccount && onConnectWallet && (
+                        <button
+                          type="button"
+                          onClick={onConnectWallet}
+                          className="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-lg text-xs transition-colors cursor-pointer"
+                        >
+                          Connect Now
+                        </button>
+                      )}
                     </div>
 
                     <div className="flex justify-between items-center p-3 bg-primary-50/50 rounded-lg border border-primary-100 text-sm">

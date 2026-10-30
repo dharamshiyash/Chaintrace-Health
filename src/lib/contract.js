@@ -26,15 +26,22 @@ export const CONTRACT_ADDRESS =
   "0x3E8bBd12a1A614d131Fc227106D2697Df1C0C072";
 
 /**
- * Returns window.ethereum or throws an actionable error if unavailable.
+ * Returns MetaMask provider or throws an actionable error if unavailable.
  */
 export function getEthereum() {
-  if (typeof window === "undefined" || !window.ethereum) {
+  if (typeof window === "undefined") {
+    throw new Error("Window environment is not available.");
+  }
+  let ethereum = window.ethereum;
+  if (ethereum?.providers?.length) {
+    ethereum = ethereum.providers.find((p) => p.isMetaMask) || ethereum.providers[0];
+  }
+  if (!ethereum) {
     throw new Error(
-      "MetaMask or compatible browser wallet was not detected. Please install MetaMask to register batches on the blockchain."
+      "MetaMask was not detected. Please ensure the MetaMask extension is installed and enabled."
     );
   }
-  return window.ethereum;
+  return ethereum;
 }
 
 /**
@@ -42,9 +49,14 @@ export function getEthereum() {
  */
 export async function ensureAmoyNetwork() {
   const ethereum = getEthereum();
-  const currentChainId = await ethereum.request({ method: "eth_chainId" });
+  let currentChainId = null;
+  try {
+    currentChainId = await ethereum.request({ method: "eth_chainId" });
+  } catch (err) {
+    console.warn("Could not read eth_chainId:", err.message);
+  }
 
-  if (currentChainId.toLowerCase() === AMOY_CHAIN_ID_HEX.toLowerCase()) {
+  if (currentChainId && parseInt(currentChainId, 16) === AMOY_CHAIN_ID_DECIMAL) {
     return;
   }
 
@@ -54,8 +66,13 @@ export async function ensureAmoyNetwork() {
       params: [{ chainId: AMOY_CHAIN_ID_HEX }],
     });
   } catch (switchError) {
-    // Error code 4902 indicates that the chain has not been added to MetaMask
-    if (switchError.code === 4902 || switchError.data?.originalError?.code === 4902) {
+    const isUnrecognized =
+      switchError.code === 4902 ||
+      switchError.data?.originalError?.code === 4902 ||
+      String(switchError.message || "").toLowerCase().includes("unrecognized") ||
+      String(switchError.message || "").toLowerCase().includes("not found");
+
+    if (isUnrecognized) {
       await ethereum.request({
         method: "wallet_addEthereumChain",
         params: [AMOY_CHAIN_PARAMS],
@@ -72,7 +89,8 @@ export async function ensureAmoyNetwork() {
 export async function getConnectedAccount() {
   if (typeof window === "undefined" || !window.ethereum) return null;
   try {
-    const accounts = await window.ethereum.request({ method: "eth_accounts" });
+    const ethereum = getEthereum();
+    const accounts = await ethereum.request({ method: "eth_accounts" });
     return accounts && accounts.length > 0 ? accounts[0] : null;
   } catch {
     return null;
@@ -84,10 +102,15 @@ export async function getConnectedAccount() {
  */
 export async function connectWallet() {
   const ethereum = getEthereum();
-  await ensureAmoyNetwork();
+  // Request account first so MetaMask immediately opens permission modal
   const accounts = await ethereum.request({ method: "eth_requestAccounts" });
   if (!accounts || accounts.length === 0) {
-    throw new Error("No accounts authorized in browser wallet.");
+    throw new Error("No accounts authorized in MetaMask.");
+  }
+  try {
+    await ensureAmoyNetwork();
+  } catch (netErr) {
+    console.warn("Notice: Network switch check:", netErr.message);
   }
   return accounts[0];
 }
@@ -109,7 +132,7 @@ export function parseWeb3Error(err) {
     msg.toLowerCase().includes("user denied") ||
     msg.toLowerCase().includes("rejected transaction")
   ) {
-    return "Transaction rejected by user.";
+    return "Transaction signature rejected in MetaMask.";
   }
 
   // Contract revert reasons
@@ -160,11 +183,22 @@ export async function registerBatchOnChain(form) {
     throw new Error("Manufacturing date must be before expiry date.");
   }
 
-  // Ensure network is Polygon Amoy
+  const ethereum = getEthereum();
+
+  // 1. Explicitly prompt MetaMask connection if not connected
+  let accounts = await ethereum.request({ method: "eth_accounts" });
+  if (!accounts || accounts.length === 0) {
+    accounts = await ethereum.request({ method: "eth_requestAccounts" });
+  }
+  if (!accounts || accounts.length === 0) {
+    throw new Error("Please connect your MetaMask wallet to sign this batch.");
+  }
+
+  // 2. Ensure network is Polygon Amoy
   await ensureAmoyNetwork();
 
-  const provider = new ethers.BrowserProvider(window.ethereum);
-  const signer = await provider.getSigner();
+  const provider = new ethers.BrowserProvider(ethereum);
+  const signer = await provider.getSigner(accounts[0]);
 
   const contract = new ethers.Contract(CONTRACT_ADDRESS, chainTraceHealthAbi, signer);
 
@@ -192,6 +226,7 @@ export async function registerBatchOnChain(form) {
     mfgTimestamp,
     expTimestamp,
     location,
+    signerAddress: accounts[0],
   };
 }
 
@@ -205,10 +240,19 @@ export async function recallBatchOnChain(batchId, reason) {
   if (!cleanId) throw new Error("Batch ID is required for recall.");
   if (!cleanReason) throw new Error("Recall reason is required.");
 
+  const ethereum = getEthereum();
+  let accounts = await ethereum.request({ method: "eth_accounts" });
+  if (!accounts || accounts.length === 0) {
+    accounts = await ethereum.request({ method: "eth_requestAccounts" });
+  }
+  if (!accounts || accounts.length === 0) {
+    throw new Error("Please connect your MetaMask wallet to sign this recall.");
+  }
+
   await ensureAmoyNetwork();
 
-  const provider = new ethers.BrowserProvider(window.ethereum);
-  const signer = await provider.getSigner();
+  const provider = new ethers.BrowserProvider(ethereum);
+  const signer = await provider.getSigner(accounts[0]);
   const contract = new ethers.Contract(CONTRACT_ADDRESS, chainTraceHealthAbi, signer);
 
   const tx = await contract.recallBatch(cleanId, cleanReason);
@@ -219,6 +263,7 @@ export async function recallBatchOnChain(batchId, reason) {
     receipt,
     batchId: cleanId,
     reason: cleanReason,
+    signerAddress: accounts[0],
   };
 }
 
@@ -234,10 +279,19 @@ export async function addSupplyChainEventOnChain(batchId, role, location) {
   if (!cleanRole) throw new Error("Role is required.");
   if (!cleanLoc) throw new Error("Location is required.");
 
+  const ethereum = getEthereum();
+  let accounts = await ethereum.request({ method: "eth_accounts" });
+  if (!accounts || accounts.length === 0) {
+    accounts = await ethereum.request({ method: "eth_requestAccounts" });
+  }
+  if (!accounts || accounts.length === 0) {
+    throw new Error("Please connect your MetaMask wallet to record supply chain events.");
+  }
+
   await ensureAmoyNetwork();
 
-  const provider = new ethers.BrowserProvider(window.ethereum);
-  const signer = await provider.getSigner();
+  const provider = new ethers.BrowserProvider(ethereum);
+  const signer = await provider.getSigner(accounts[0]);
   const contract = new ethers.Contract(CONTRACT_ADDRESS, chainTraceHealthAbi, signer);
 
   const tx = await contract.addSupplyChainEvent(cleanId, cleanRole, cleanLoc);
@@ -249,6 +303,7 @@ export async function addSupplyChainEventOnChain(batchId, role, location) {
     batchId: cleanId,
     role: cleanRole,
     location: cleanLoc,
+    signerAddress: accounts[0],
   };
 }
 
@@ -259,10 +314,19 @@ export async function addApprovedPartnerOnChain(partnerAddress) {
   const cleanAddr = partnerAddress?.trim();
   if (!cleanAddr) throw new Error("Partner address is required.");
 
+  const ethereum = getEthereum();
+  let accounts = await ethereum.request({ method: "eth_accounts" });
+  if (!accounts || accounts.length === 0) {
+    accounts = await ethereum.request({ method: "eth_requestAccounts" });
+  }
+  if (!accounts || accounts.length === 0) {
+    throw new Error("Please connect your MetaMask wallet to approve a partner.");
+  }
+
   await ensureAmoyNetwork();
 
-  const provider = new ethers.BrowserProvider(window.ethereum);
-  const signer = await provider.getSigner();
+  const provider = new ethers.BrowserProvider(ethereum);
+  const signer = await provider.getSigner(accounts[0]);
   const contract = new ethers.Contract(CONTRACT_ADDRESS, chainTraceHealthAbi, signer);
 
   const tx = await contract.addApprovedPartner(cleanAddr);
@@ -272,5 +336,6 @@ export async function addApprovedPartnerOnChain(partnerAddress) {
     txHash: receipt.hash,
     receipt,
     partner: cleanAddr,
+    signerAddress: accounts[0],
   };
 }

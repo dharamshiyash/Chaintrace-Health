@@ -1,5 +1,6 @@
 import localDb from "../_lib/db.js";
 import { getRequesterContext, canAccessBatch } from "../_lib/visibilityService.js";
+import { findOrHydrateBatch } from "../_lib/syncService.js";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {
@@ -14,7 +15,7 @@ export default async function handler(req, res) {
   const cleanId = String(id).trim();
 
   try {
-    const batch = localDb.getBatchById(cleanId);
+    const batch = await findOrHydrateBatch(cleanId);
     if (!batch) {
       return res.status(404).json({ error: `Batch "${cleanId}" not found` });
     }

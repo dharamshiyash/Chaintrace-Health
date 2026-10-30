@@ -254,21 +254,22 @@ try {
 }
 
 let db = null;
+const isVercel = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+let targetDir = isVercel ? os.tmpdir() : path.resolve(process.cwd(), "data");
+
+try {
+  if (!fs.existsSync(targetDir)) {
+    fs.mkdirSync(targetDir, { recursive: true });
+  }
+} catch {
+  targetDir = os.tmpdir();
+}
+
+const dbPath = path.join(targetDir, "chaintrace.db");
+const jsonBackupPath = path.join(targetDir, "ledger_store.json");
 
 if (DatabaseSync) {
   try {
-    const isVercel = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
-    let targetDir = isVercel ? os.tmpdir() : path.resolve(process.cwd(), "data");
-
-    try {
-      if (!fs.existsSync(targetDir)) {
-        fs.mkdirSync(targetDir, { recursive: true });
-      }
-    } catch {
-      targetDir = os.tmpdir();
-    }
-
-    const dbPath = path.join(targetDir, "chaintrace.db");
     try {
       db = new DatabaseSync(dbPath);
     } catch {
@@ -741,6 +742,103 @@ if (currentCount === 0) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// File-Based Persistence Mirror (Survives Serverless Cold Starts)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function syncLedgerToJson() {
+  try {
+    const allBatches = localDb.getAllBatches();
+    const allEvents = db.prepare("SELECT * FROM supply_chain_events ORDER BY timestamp ASC, id ASC").all();
+    const payload = {
+      batches: allBatches,
+      events: allEvents,
+      updated_at: new Date().toISOString()
+    };
+    fs.writeFileSync(jsonBackupPath, JSON.stringify(payload, null, 2), "utf8");
+    const localDataPath = path.resolve(process.cwd(), "data/ledger_store.json");
+    if (localDataPath !== jsonBackupPath) {
+      try {
+        fs.writeFileSync(localDataPath, JSON.stringify(payload, null, 2), "utf8");
+      } catch {}
+    }
+  } catch (err) {
+    // Non-blocking
+  }
+}
+
+export function restoreLedgerFromJson() {
+  try {
+    let raw = null;
+    if (fs.existsSync(jsonBackupPath)) {
+      raw = fs.readFileSync(jsonBackupPath, "utf8");
+    } else {
+      const localDataPath = path.resolve(process.cwd(), "data/ledger_store.json");
+      if (fs.existsSync(localDataPath)) {
+        raw = fs.readFileSync(localDataPath, "utf8");
+      }
+    }
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (Array.isArray(data.batches)) {
+      const insertBatch = db.prepare(`
+        INSERT OR REPLACE INTO batches (
+          batch_id, medicine_name, manufacturer, status, recall_reason, recalled_at, recalled_by,
+          quantity, manufacturing_date, expiry_date, current_custodian, current_org,
+          destination_address, destination_org, stage, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const b of data.batches) {
+        insertBatch.run(
+          b.batch_id,
+          b.medicine_name,
+          b.manufacturer,
+          b.status || "Active",
+          b.recall_reason || null,
+          b.recalled_at || null,
+          b.recalled_by || null,
+          Number(b.quantity) || 100,
+          Number(b.manufacturing_date) || Math.floor(Date.now() / 1000),
+          Number(b.expiry_date) || Math.floor(Date.now() / 1000) + 86400 * 365,
+          b.current_custodian || b.manufacturer,
+          b.current_org || "",
+          b.destination_address || null,
+          b.destination_org || null,
+          b.stage || "Fresh",
+          b.created_at || new Date().toISOString(),
+          b.updated_at || new Date().toISOString()
+        );
+      }
+    }
+    if (Array.isArray(data.events)) {
+      const insertEvent = db.prepare(`
+        INSERT OR IGNORE INTO supply_chain_events (
+          id, batch_id, actor, role, action, location, authorized, tx_hash, timestamp, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const ev of data.events) {
+        insertEvent.run(
+          ev.id,
+          ev.batch_id,
+          ev.actor,
+          ev.role,
+          ev.action,
+          ev.location,
+          ev.authorized ? 1 : 0,
+          ev.tx_hash || null,
+          Number(ev.timestamp) || Math.floor(Date.now() / 1000),
+          ev.created_at || new Date().toISOString()
+        );
+      }
+    }
+  } catch (err) {
+    // Non-blocking
+  }
+}
+
+// Restore saved state from persistent JSON store
+restoreLedgerFromJson();
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Database Helper Methods
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -761,6 +859,7 @@ export const localDb = {
       INSERT OR REPLACE INTO profiles (address, role, org_name, created_at)
       VALUES (?, ?, ?, COALESCE((SELECT created_at FROM profiles WHERE lower(address) = lower(?)), ?))
     `).run(cleanAddr, role, org_name, cleanAddr, new Date().toISOString());
+    syncLedgerToJson();
     return this.getProfile(cleanAddr);
   },
 
@@ -824,6 +923,7 @@ export const localDb = {
       now
     );
 
+    syncLedgerToJson();
     return this.getBatchById(cleanId);
   },
 
@@ -865,6 +965,7 @@ export const localDb = {
       now
     );
 
+    syncLedgerToJson();
     return this.getBatchById(cleanId);
   },
 
@@ -891,6 +992,40 @@ export const localDb = {
 
     const now = new Date().toISOString();
     const cleanActor = String(actor).toLowerCase();
+    const cleanRole = String(role || "Custodian");
+    const actUpper = String(action || "").toUpperCase();
+
+    // Determine normalized action and location
+    let finalAction = action || "CUSTODY_HANDOFF";
+    let finalLocation = location || "Logistics Hub";
+
+    if (actUpper.includes("DISPATCH") || actUpper === "DISPATCH") {
+      if (cleanRole.toLowerCase().includes("distributor")) {
+        finalAction = "DISPATCHED_TO_PHARMACY";
+        if (!location) finalLocation = "Dispatched to Retail Pharmacy";
+      } else {
+        finalAction = "DISPATCHED_TO_DISTRIBUTOR";
+        if (!location) finalLocation = "Dispatched to Regional Distribution Hub";
+      }
+    } else if (actUpper.includes("TRANSFER")) {
+      finalAction = "DISPATCHED_TO_PHARMACY";
+      if (!location) finalLocation = "Dispatched to Retail Pharmacy";
+    } else if (actUpper.includes("RECEIV") || actUpper.includes("INTAKE")) {
+      if (cleanRole.toLowerCase().includes("pharmacy")) {
+        finalAction = "RECEIVED_AT_PHARMACY";
+        if (!location) finalLocation = "Received at Retail Dispensary";
+      } else {
+        finalAction = "RECEIVED_AT_FACILITY";
+        if (!location) finalLocation = "Received at Logistics Hub Warehouse";
+      }
+    } else if (actUpper.includes("DISPENS")) {
+      finalAction = "DISPENSED_TO_PATIENT";
+      if (!location) finalLocation = "Dispensed at Retail Pharmacy Counter";
+    }
+
+    if (destination_org && !finalLocation.includes("→") && !finalLocation.toLowerCase().includes(destination_org.toLowerCase())) {
+      finalLocation = `${finalLocation} → ${destination_org}`;
+    }
 
     // Determine status and custodian
     let newStatus = batch.status;
@@ -900,19 +1035,30 @@ export const localDb = {
     let newDestOrg = destination_org || batch.destination_org;
     let newStage = batch.stage;
 
+    // Auto-resolve destination org if destination address provided
+    if (destination_address) {
+      newDestAddr = String(destination_address).toLowerCase();
+      if (!newDestOrg) {
+        const destProf = this.getProfile(newDestAddr);
+        if (destProf) {
+          newDestOrg = destProf.org_name;
+        }
+      }
+    }
+
     if (!authorized) {
       newStatus = "Suspicious";
       newStage = "Exception";
     }
 
-    const normAction = (action || "").toUpperCase();
+    const normAction = finalAction.toUpperCase();
 
     if (normAction.includes("DISPATCH") || normAction.includes("IN_TRANSIT") || normAction.includes("TRANSFER")) {
       newStage = "In-Transit";
       newCustodian = cleanActor;
       const profile = this.getProfile(cleanActor);
       if (profile) newCurrentOrg = profile.org_name;
-    } else if (normAction.includes("RECEIV") || normAction.includes("ACCEPT")) {
+    } else if (normAction.includes("RECEIV") || normAction.includes("INTAKE") || normAction.includes("ACCEPT")) {
       newStage = "Fresh";
       newCustodian = cleanActor;
       const profile = this.getProfile(cleanActor);
@@ -950,14 +1096,16 @@ export const localDb = {
     `).run(
       cleanId,
       cleanActor,
-      role || "Custodian",
-      action || "CUSTODY_HANDOFF",
-      location || "Logistics Facility",
+      cleanRole,
+      finalAction,
+      finalLocation,
       authorized ? 1 : 0,
       tx_hash || null,
       Math.floor(Date.now() / 1000),
       now
     );
+
+    syncLedgerToJson();
 
     return {
       batch: this.getBatchById(cleanId),

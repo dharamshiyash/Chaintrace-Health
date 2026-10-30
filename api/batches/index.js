@@ -1,41 +1,63 @@
 import localDb from "../_lib/db.js";
 import { getRequesterContext, scopeAndEnrichBatches } from "../_lib/visibilityService.js";
-import { contract, verifyBatchWithFallback } from "../_lib/contract.js";
+import { contract, verifyBatchWithFallback, executeRegisterOnChain } from "../_lib/contract.js";
 import { supabase, withTimeout } from "../_lib/supabase.js";
 
 export default async function handler(req, res) {
   // Handle POST: Register / index newly confirmed batch
   if (req.method === "POST") {
-    const {
-      batch_id,
-      medicine_name,
-      manufacturer,
-      quantity,
-      manufacturing_date,
-      expiry_date,
-      location,
-      tx_hash,
-    } = req.body || {};
+    const rawId = req.body?.batch_id || req.body?.batchId;
+    const medicine_name = req.body?.medicine_name || req.body?.medicineName;
+    const manufacturer = req.body?.manufacturer || req.body?.actor;
+    const quantity = req.body?.quantity;
+    const manufacturing_date = req.body?.manufacturing_date || req.body?.mfgDate;
+    const expiry_date = req.body?.expiry_date || req.body?.expDate;
+    const location = req.body?.location;
+    const tx_hash = req.body?.tx_hash || req.body?.txHash;
 
-    if (!batch_id) {
+    if (!rawId) {
       return res.status(400).json({ error: "batch_id is required" });
     }
 
-    const cleanId = String(batch_id).trim();
+    const cleanId = String(rawId).trim();
+    let confirmedTx = tx_hash || null;
 
-    // 1. Persist to authoritative local DB
+    // 1. Immediately persist to authoritative local DB
     const newBatch = localDb.createBatch({
       batch_id: cleanId,
-      medicine_name,
+      medicine_name: medicine_name || "Medicine Batch",
       manufacturer: manufacturer || "0x05Db076e1f33575447AC32E3b5401a90e77a9cFD",
       quantity: quantity || 100,
       manufacturing_date,
       expiry_date,
       location,
-      tx_hash,
+      tx_hash: confirmedTx,
     });
 
-    // 2. Best-effort mirror to Supabase
+    // 2. If no tx_hash provided (registered without browser wallet), execute on Polygon Amoy via backend signer
+    if (!confirmedTx) {
+      try {
+        const mfgTime = Number(manufacturing_date) || Math.floor(Date.now() / 1000);
+        const expTime = Number(expiry_date) || Math.floor(Date.now() / 1000) + 86400 * 365;
+        const qtyNum = Number(quantity) || 100;
+        const onChainTx = await executeRegisterOnChain(
+          cleanId,
+          medicine_name || "Medicine Batch",
+          mfgTime,
+          expTime,
+          qtyNum,
+          location || "Manufacturing Facility"
+        );
+        if (onChainTx) {
+          confirmedTx = onChainTx;
+          newBatch.tx_hash = onChainTx;
+        }
+      } catch (chainErr) {
+        console.warn("Notice: On-chain genesis write skipped:", chainErr.message);
+      }
+    }
+
+    // 3. Best-effort mirror to Supabase
     try {
       await withTimeout(
         supabase.from("batches").upsert([
@@ -52,7 +74,7 @@ export default async function handler(req, res) {
       // Non-critical mirror
     }
 
-    return res.status(201).json({ ok: true, batch: newBatch });
+    return res.status(201).json({ ok: true, batch: newBatch, tx_hash: confirmedTx });
   }
 
   if (req.method !== "GET") {

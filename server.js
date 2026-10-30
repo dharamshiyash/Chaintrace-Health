@@ -1,68 +1,14 @@
 // Local Express API server — mirrors the Vercel serverless routes for local dev
-// Run with: node server.js  (separate terminal alongside npm run dev)
+// Run with: node server.js  (or simply use npm run dev, which includes the API)
 
 import "dotenv/config";
-import express from "express";
-import cors from "cors";
+import { createApiApp } from "./apiApp.js";
 
-// ── Route handlers (same files Vercel uses) ───────────────────────────────
-import batchesIndex   from "./api/batches/index.js";
-import batchesById    from "./api/batches/[id].js";
-import batchesRecall  from "./api/batches/recall.js";
-import batchesEvents  from "./api/batches/events.js";
-import batchesHistory from "./api/batches/history.js";
-import verifyById     from "./api/verify/[id].js";
-import eventsIndex    from "./api/events/index.js";
-import offenders      from "./api/offenders/index.js";
-import qrById         from "./api/qr/[id].js";
-
-const app  = express();
-const PORT = 3001;
-
-app.use(cors());
-app.use(express.json());
-
-// Helper: ensure handlers can read the :id param regardless of how Vercel vs Express delivers it.
-// Vercel delivers dynamic segment as req.query.id; Express delivers it as req.params.id.
-function withId(handler) {
-  return (req, res) => {
-    if (req.params.id && !req.query.id) {
-      try {
-        Object.defineProperty(req, "query", {
-          value: { ...req.query, id: req.params.id },
-          writable: true,
-          configurable: true,
-        });
-      } catch {
-        req._id = req.params.id; // fallback
-      }
-    }
-    return handler(req, res);
-  };
-}
-
-// ── Routes ────────────────────────────────────────────────────────────────
-app.get("/api/batches",             batchesIndex);
-app.post("/api/batches",            batchesIndex);
-app.post("/api/batches/recall",     batchesRecall);
-app.post("/api/batches/events",     batchesEvents);
-app.get("/api/batches/:id/history", withId(batchesHistory));
-app.get("/api/batches/:id",         withId(batchesById));
-app.get("/api/verify/:id",          withId(verifyById));
-app.post("/api/events",             eventsIndex);
-app.get("/api/offenders",           offenders);
-app.get("/api/qr/:id",              withId(qrById));
-
-// Health check
-app.get("/api/health", (_, res) => res.json({
-  ok: true,
-  ts: Date.now(),
-  network: process.env.HARDHAT_NETWORK,
-  rpc: process.env.HARDHAT_NETWORK === "localhost" ? "http://127.0.0.1:8545" : process.env.AMOY_RPC_URL,
-}));
+const app = createApiApp();
+const PORT = process.env.API_PORT || 3001;
 
 app.listen(PORT, () => {
   console.log(`\n🟢  Local API server running at http://localhost:${PORT}`);
-  console.log(`    Network: ${process.env.HARDHAT_NETWORK || "localhost"}`);
-  console.log(`    Proxied via Vite  /api/* → http://localhost:${PORT}/api/*\n`);
+  console.log(`    Network: ${process.env.HARDHAT_NETWORK || "amoy"}`);
+  console.log(`    Endpoints available at http://localhost:${PORT}/api/*\n`);
 });

@@ -171,10 +171,39 @@ export default function ManufacturerDashboard() {
     setSubmitting(true);
     try {
       let result;
-      try {
-        result = await registerBatchOnChain(form);
-      } catch (chainErr) {
-        console.warn("Notice: Falling back to direct API registration:", chainErr.message);
+      const hasMetaMask = typeof window !== "undefined" && Boolean(window.ethereum);
+
+      if (hasMetaMask) {
+        try {
+          result = await registerBatchOnChain(form);
+          if (result?.signerAddress) {
+            setConnectedAccount(result.signerAddress.toLowerCase());
+          }
+        } catch (chainErr) {
+          const web3Msg = parseWeb3Error(chainErr);
+          // If the user deliberately rejected or there's an on-chain conflict, alert user and do not silently fall back
+          if (
+            chainErr.code === 4001 ||
+            chainErr.code === "ACTION_REJECTED" ||
+            web3Msg.toLowerCase().includes("rejected") ||
+            web3Msg.toLowerCase().includes("already registered") ||
+            web3Msg.toLowerCase().includes("insufficient funds")
+          ) {
+            showToast(web3Msg, "error");
+            return;
+          }
+          console.warn("Notice: MetaMask on-chain signing failed, falling back to direct API registration:", chainErr.message);
+          result = {
+            batchId: form.batchId.trim(),
+            medicineName: form.medicineName.trim(),
+            quantity: Number(form.quantity),
+            mfgTimestamp: Math.floor(new Date(form.mfgDate).getTime() / 1000),
+            expTimestamp: Math.floor(new Date(form.expDate).getTime() / 1000),
+            location: form.location.trim(),
+            txHash: null,
+          };
+        }
+      } else {
         result = {
           batchId: form.batchId.trim(),
           medicineName: form.medicineName.trim(),
@@ -194,12 +223,13 @@ export default function ManufacturerDashboard() {
         expiry_date: result.expTimestamp,
         location: result.location,
         tx_hash: result.txHash,
-        manufacturer: manufacturerAddress,
+        manufacturer: connectedAccount || manufacturerAddress,
       });
 
       showToast(`Batch "${form.batchId}" registered successfully!`, "success", result.txHash);
       setIsDrawerOpen(false);
       await qc.invalidateQueries({ queryKey: ["batches"] });
+      await qc.invalidateQueries({ queryKey: ["verify"] });
       await qc.refetchQueries({ queryKey: ["batches"] });
     } catch (err) {
       console.error("Batch registration error:", err);
@@ -228,6 +258,7 @@ export default function ManufacturerDashboard() {
       showToast(`Batch "${recallForm.batchId}" officially RECALLED: ${recallForm.reason}`, "success", txHash || res.tx_hash);
       setRecallForm({ batchId: "", reason: "" });
       await qc.invalidateQueries({ queryKey: ["batches"] });
+      await qc.invalidateQueries({ queryKey: ["verify"] });
       await qc.refetchQueries({ queryKey: ["batches"] });
     } catch (err) {
       console.error("Recall error:", err);
@@ -242,16 +273,23 @@ export default function ManufacturerDashboard() {
     if (!dispatchForm.batchId || !dispatchForm.toAddress) return;
     setSubmitting(true);
     try {
+      const selectedPartner = PARTNER_PRESETS.find(p => p.address.toLowerCase() === dispatchForm.toAddress.toLowerCase());
+      const destOrgName = selectedPartner ? selectedPartner.name : "Authorized Distributor";
+      const targetBatch = batches?.find(b => b.batch_id?.toLowerCase() === dispatchForm.batchId.trim().toLowerCase());
+      const actorAddress = targetBatch?.current_custodian || targetBatch?.manufacturer || manufacturerAddress;
+
       await dispatchBatchApi({
-        batchId: dispatchForm.batchId,
+        batchId: dispatchForm.batchId.trim(),
         toAddress: dispatchForm.toAddress,
-        location: dispatchForm.location || "Dispatched from facility",
-        actor: manufacturerAddress,
+        destination_org: destOrgName,
+        location: dispatchForm.location || (selectedPartner ? `Transit to ${selectedPartner.name.split(" ")[0]}` : "Dispatched from facility"),
+        actor: actorAddress,
         role: "Manufacturer",
       });
-      showToast(`Batch "${dispatchForm.batchId}" dispatched to distributor.`, "success");
+      showToast(`Batch "${dispatchForm.batchId}" dispatched to ${destOrgName.split(" ")[0]}.`, "success");
       setDispatchForm({ batchId: "", toAddress: "", location: "" });
       await qc.invalidateQueries({ queryKey: ["batches"] });
+      await qc.invalidateQueries({ queryKey: ["verify"] });
       await qc.refetchQueries({ queryKey: ["batches"] });
     } catch (err) {
       showToast(err.message || "Failed to dispatch batch.", "error");
@@ -290,6 +328,13 @@ export default function ManufacturerDashboard() {
         onClose={() => setIsDrawerOpen(false)} 
         onSubmit={handleRegister} 
         isSubmitting={submitting} 
+        connectedAccount={connectedAccount}
+        onConnectWallet={() => {
+          connectWallet()
+            .then(acc => setConnectedAccount(acc.toLowerCase()))
+            .catch(err => showToast(parseWeb3Error(err), "error"));
+        }}
+        existingBatchIds={batches?.map(b => b.batch_id) || []}
       />
 
       <motion.div 
@@ -460,13 +505,23 @@ export default function ManufacturerDashboard() {
               </div>
               <form onSubmit={handleDispatch} className="flex flex-col gap-3">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <input
-                    className="px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 font-mono text-sm"
-                    placeholder="Batch ID"
-                    value={dispatchForm.batchId}
-                    onChange={e => setDispatchForm(f => ({ ...f, batchId: e.target.value }))}
-                    required
-                  />
+                  <div className="relative">
+                    <input
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 font-mono text-sm"
+                      placeholder="Batch ID (e.g. BATCH-...)"
+                      value={dispatchForm.batchId}
+                      onChange={e => setDispatchForm(f => ({ ...f, batchId: e.target.value }))}
+                      required
+                      list="facility-batches-list"
+                    />
+                    <datalist id="facility-batches-list">
+                      {batches?.filter(b => b.status === "Active").map(b => (
+                        <option key={b.batch_id} value={b.batch_id}>
+                          {b.medicine_name} ({b.stage || "Active"})
+                        </option>
+                      ))}
+                    </datalist>
+                  </div>
                   <select
                     className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-900 text-sm"
                     value={dispatchForm.toAddress}
