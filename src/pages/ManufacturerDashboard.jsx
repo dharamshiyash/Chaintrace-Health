@@ -285,6 +285,9 @@ export default function ManufacturerDashboard() {
         location: dispatchForm.location || (selectedPartner ? `Transit to ${selectedPartner.name.split(" ")[0]}` : "Dispatched from facility"),
         actor: actorAddress,
         role: "Manufacturer",
+        medicine_name: targetBatch?.medicine_name,
+        quantity: targetBatch?.quantity,
+        manufacturer: targetBatch?.manufacturer || actorAddress,
       });
       showToast(`Batch "${dispatchForm.batchId}" dispatched to ${destOrgName.split(" ")[0]}.`, "success");
       setDispatchForm({ batchId: "", toAddress: "", location: "" });
@@ -493,8 +496,8 @@ export default function ManufacturerDashboard() {
             </div>
 
             {/* Quick Dispatch Card */}
-            <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 md:p-8">
-              <div className="flex items-center gap-4 mb-6">
+            <div id="dispatch-card" className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 md:p-8">
+              <div className="flex items-center gap-4 mb-4">
                 <div className="p-3 bg-blue-50 rounded-xl text-blue-600">
                   <Truck size={28} weight="duotone" />
                 </div>
@@ -503,12 +506,37 @@ export default function ManufacturerDashboard() {
                   <p className="text-sm font-medium text-slate-500">Hand over in-facility batch to an authorized distributor</p>
                 </div>
               </div>
+
+              {/* Ready to Dispatch Quick Select Pills */}
+              {batches?.filter(b => b.status === "Active" && (b.stage === "Fresh" || b.isFresh || !b.isInTransit)).length > 0 && (
+                <div className="mb-4 p-3 bg-blue-50/50 rounded-2xl border border-blue-100 flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-bold text-blue-900">Ready in Facility:</span>
+                  {batches
+                    .filter(b => b.status === "Active" && (b.stage === "Fresh" || b.isFresh || !b.isInTransit))
+                    .slice(0, 5)
+                    .map(b => (
+                      <button
+                        key={b.batch_id}
+                        type="button"
+                        onClick={() => setDispatchForm(f => ({ ...f, batchId: b.batch_id }))}
+                        className={`text-xs px-2.5 py-1 rounded-lg border font-mono font-medium transition-all ${
+                          dispatchForm.batchId === b.batch_id
+                            ? "bg-blue-600 text-white border-blue-600 shadow-sm"
+                            : "bg-white hover:bg-blue-100/70 text-slate-700 hover:text-blue-800 border-slate-200"
+                        }`}
+                      >
+                        {b.batch_id} • {b.medicine_name}
+                      </button>
+                    ))}
+                </div>
+              )}
+
               <form onSubmit={handleDispatch} className="flex flex-col gap-3">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="relative">
                     <input
                       className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 font-mono text-sm"
-                      placeholder="Batch ID (e.g. BATCH-...)"
+                      placeholder="Batch ID (e.g. BATCH-010)"
                       value={dispatchForm.batchId}
                       onChange={e => setDispatchForm(f => ({ ...f, batchId: e.target.value }))}
                       required
@@ -517,7 +545,7 @@ export default function ManufacturerDashboard() {
                     <datalist id="facility-batches-list">
                       {batches?.filter(b => b.status === "Active").map(b => (
                         <option key={b.batch_id} value={b.batch_id}>
-                          {b.medicine_name} ({b.stage || "Active"})
+                          {b.batch_id} — {b.medicine_name} ({b.stage || "Active"})
                         </option>
                       ))}
                     </datalist>
@@ -621,7 +649,10 @@ export default function ManufacturerDashboard() {
                 error={isBatchError ? (batchError?.message || "Failed to load batches") : null}
                 onRetry={() => refetchBatches()}
                 onRecall={(id) => setRecallForm(f => ({ ...f, batchId: id, reason: "Quality Defect" }))}
-                onDispatch={(batch) => setDispatchForm(f => ({ ...f, batchId: batch.batch_id }))}
+                onDispatch={(batch) => {
+                  setDispatchForm(f => ({ ...f, batchId: batch.batch_id }));
+                  document.getElementById("dispatch-card")?.scrollIntoView({ behavior: "smooth" });
+                }}
               />
             </div>
           </motion.div>

@@ -688,6 +688,64 @@ if (currentCount === 0) {
         },
       ],
     },
+    {
+      batch_id: "BATCH-010",
+      medicine_name: "Paracetamol 500mg",
+      manufacturer: apexAddr,
+      status: "Active",
+      recall_reason: null,
+      recalled_at: null,
+      recalled_by: null,
+      quantity: 1000,
+      manufacturing_date: 1793293176,
+      expiry_date: 1824915576,
+      current_custodian: apexAddr,
+      current_org: "Apex BioPharma (Origin Node)",
+      destination_address: null,
+      destination_org: null,
+      stage: "Fresh",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      events: [
+        {
+          actor: apexAddr,
+          role: "Manufacturer",
+          action: "REGISTERED",
+          location: "Apex BioPharma Mumbai Facility",
+          authorized: 1,
+          timestamp: 1793293176,
+        },
+      ],
+    },
+    {
+      batch_id: "BATCH-009",
+      medicine_name: "Amoxicillin 250mg",
+      manufacturer: apexAddr,
+      status: "Active",
+      recall_reason: null,
+      recalled_at: null,
+      recalled_by: null,
+      quantity: 500,
+      manufacturing_date: 1793293214,
+      expiry_date: 1824915614,
+      current_custodian: apexAddr,
+      current_org: "Apex BioPharma (Origin Node)",
+      destination_address: null,
+      destination_org: null,
+      stage: "Fresh",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      events: [
+        {
+          actor: apexAddr,
+          role: "Manufacturer",
+          action: "REGISTERED",
+          location: "Apex BioPharma Mumbai Facility",
+          authorized: 1,
+          timestamp: 1793293214,
+        },
+      ],
+    },
   ];
 
   const insertBatch = db.prepare(`
@@ -728,6 +786,120 @@ if (currentCount === 0) {
     for (const ev of b.events) {
       insertEvent.run(
         b.batch_id,
+        ev.actor,
+        ev.role,
+        ev.action,
+        ev.location,
+        ev.authorized,
+        null,
+        ev.timestamp,
+        new Date(ev.timestamp * 1000).toISOString()
+      );
+    }
+  }
+}
+
+// Always ensure BATCH-010 and BATCH-009 are populated for verified dispatch testing across all environments
+const ensureTestingBatches = [
+  {
+    batch_id: "BATCH-010",
+    medicine_name: "Paracetamol 500mg",
+    manufacturer: apexAddr,
+    status: "Active",
+    recall_reason: null,
+    recalled_at: null,
+    recalled_by: null,
+    quantity: 1000,
+    manufacturing_date: 1793293176,
+    expiry_date: 1824915576,
+    current_custodian: apexAddr,
+    current_org: "Apex BioPharma (Origin Node)",
+    destination_address: null,
+    destination_org: null,
+    stage: "Fresh",
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    events: [
+      {
+        actor: apexAddr,
+        role: "Manufacturer",
+        action: "REGISTERED",
+        location: "Apex BioPharma Mumbai Facility",
+        authorized: 1,
+        timestamp: 1793293176,
+      },
+    ],
+  },
+  {
+    batch_id: "BATCH-009",
+    medicine_name: "Amoxicillin 250mg",
+    manufacturer: apexAddr,
+    status: "Active",
+    recall_reason: null,
+    recalled_at: null,
+    recalled_by: null,
+    quantity: 500,
+    manufacturing_date: 1793293214,
+    expiry_date: 1824915614,
+    current_custodian: apexAddr,
+    current_org: "Apex BioPharma (Origin Node)",
+    destination_address: null,
+    destination_org: null,
+    stage: "Fresh",
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    events: [
+      {
+        actor: apexAddr,
+        role: "Manufacturer",
+        action: "REGISTERED",
+        location: "Apex BioPharma Mumbai Facility",
+        authorized: 1,
+        timestamp: 1793293214,
+      },
+    ],
+  },
+];
+
+const checkBatchStmt = db.prepare("SELECT batch_id FROM batches WHERE LOWER(batch_id) = LOWER(?)");
+const insertSingleBatch = db.prepare(`
+  INSERT OR IGNORE INTO batches (
+    batch_id, medicine_name, manufacturer, status, recall_reason, recalled_at, recalled_by,
+    quantity, manufacturing_date, expiry_date, current_custodian, current_org,
+    destination_address, destination_org, stage, created_at, updated_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`);
+const insertSingleEvent = db.prepare(`
+  INSERT OR IGNORE INTO supply_chain_events (
+    batch_id, actor, role, action, location, authorized, tx_hash, timestamp, created_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+`);
+
+for (const tb of ensureTestingBatches) {
+  const row = checkBatchStmt.get(tb.batch_id);
+  if (!row) {
+    insertSingleBatch.run(
+      tb.batch_id,
+      tb.medicine_name,
+      tb.manufacturer,
+      tb.status,
+      tb.recall_reason,
+      tb.recalled_at,
+      tb.recalled_by,
+      tb.quantity,
+      tb.manufacturing_date,
+      tb.expiry_date,
+      tb.current_custodian,
+      tb.current_org,
+      tb.destination_address,
+      tb.destination_org,
+      tb.stage,
+      tb.created_at,
+      tb.updated_at
+    );
+    for (const ev of tb.events) {
+      insertSingleEvent.run(
+        tb.batch_id,
         ev.actor,
         ev.role,
         ev.action,

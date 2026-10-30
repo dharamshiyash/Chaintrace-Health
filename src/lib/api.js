@@ -328,7 +328,7 @@ export function recordSupplyChainEventApi(body) {
   });
 }
 
-export async function dispatchBatchApi({ batchId, toAddress, location, actor, role, txHash }) {
+export async function dispatchBatchApi({ batchId, toAddress, location, actor, role, txHash, medicine_name, quantity, manufacturer }) {
   const cleanId = String(batchId).trim().toUpperCase();
   const cleanActor = (actor || "0x05Db076e1f33575447AC32E3b5401a90e77a9cFD").toLowerCase();
   const cleanDest = toAddress ? toAddress.toLowerCase() : null;
@@ -338,13 +338,16 @@ export async function dispatchBatchApi({ batchId, toAddress, location, actor, ro
   // Find local batch details if any to provide complete metadata
   const localBatches = getLocalBatches();
   const localBatch = localBatches.find(b => String(b.batch_id).toUpperCase() === cleanId);
+  const finalMedName = medicine_name || localBatch?.medicine_name || `Medicine Batch (${cleanId})`;
+  const finalQty = quantity || localBatch?.quantity || 1000;
+  const finalMfg = manufacturer || localBatch?.manufacturer || cleanActor;
 
   // Update client ledger
   saveLocalBatch({
     batch_id: cleanId,
-    medicine_name: localBatch?.medicine_name || "Medicine Batch",
-    quantity: localBatch?.quantity || 100,
-    manufacturer: localBatch?.manufacturer || cleanActor,
+    medicine_name: finalMedName,
+    quantity: finalQty,
+    manufacturer: finalMfg,
     stage: "In-Transit",
     destination_address: cleanDest,
     destination_org: destOrg,
@@ -371,9 +374,9 @@ export async function dispatchBatchApi({ batchId, toAddress, location, actor, ro
       actor: cleanActor,
       role: role || "Manufacturer",
       tx_hash: txHash,
-      medicine_name: localBatch?.medicine_name,
-      quantity: localBatch?.quantity,
-      manufacturer: localBatch?.manufacturer || cleanActor,
+      medicine_name: finalMedName,
+      quantity: finalQty,
+      manufacturer: finalMfg,
     });
     if (res?.batch) saveLocalBatch(res.batch);
     return res;
