@@ -211,6 +211,7 @@ export default function PharmacyDashboard() {
               <BatchTable 
                 batches={compromisedBatches} 
                 loading={isLoading} 
+                role="pharmacy"
                 error={isError ? (error?.message || "Failed to load batches") : null}
                 onRetry={() => refetch()}
                 showActions={true}
@@ -412,6 +413,7 @@ export default function PharmacyDashboard() {
               <BatchTable 
                 batches={filteredBatches} 
                 loading={isLoading} 
+                role="pharmacy"
                 error={isError ? (error?.message || "Failed to load batches") : null}
                 onRetry={() => refetch()}
                 onReceive={(b) => {

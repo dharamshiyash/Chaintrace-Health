@@ -390,6 +390,7 @@ export default function DistributorDashboard() {
                 error={null}
                 onRetry={() => refetch()}
                 showActions={true}
+                role="distributor"
               />
             </motion.div>
           )}
@@ -437,6 +438,7 @@ export default function DistributorDashboard() {
               loading={isLoading} 
               error={isError ? (error?.message || "Failed to load batches") : null}
               onRetry={() => refetch()}
+              role="distributor"
               onDispatch={(batch) => {
                 setTransferForm(f => ({ ...f, batchId: batch.batch_id }));
                 document.getElementById("action-center")?.scrollIntoView({ behavior: "smooth" });

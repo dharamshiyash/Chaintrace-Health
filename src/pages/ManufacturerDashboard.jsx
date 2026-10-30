@@ -600,6 +600,7 @@ export default function ManufacturerDashboard() {
                 error={null}
                 onRetry={refetchBatches}
                 showActions={true}
+                role="manufacturer"
               />
             </motion.div>
           )}
@@ -653,6 +654,7 @@ export default function ManufacturerDashboard() {
                   setDispatchForm(f => ({ ...f, batchId: batch.batch_id }));
                   document.getElementById("dispatch-card")?.scrollIntoView({ behavior: "smooth" });
                 }}
+                role="manufacturer"
               />
             </div>
           </motion.div>

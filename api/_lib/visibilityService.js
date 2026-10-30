@@ -173,79 +173,102 @@ export function deriveRoleStatus(batch, requester, events = []) {
   // ─── NORMAL LIFECYCLE ───────────────────────────────────────────────────────
   const currentCustodian = (batch.current_custodian || "").toLowerCase();
   const destAddress = (batch.destination_address || "").toLowerCase();
+  const destOrg = (batch.destination_org || "").toLowerCase();
+  const currentOrg = (batch.current_org || "").toLowerCase();
   const batchManufacturer = (batch.manufacturer || "").toLowerCase();
   const batchStage = (batch.stage || "Fresh").toLowerCase();
 
   let viewStatus = "Active";
   let stage = "Fresh";
 
-  if (role === "manufacturer") {
-    // If batch is still with manufacturer and hasn't been received by downstream
-    const hasLeftManufacturer =
-      currentCustodian !== batchManufacturer ||
-      destAddress.length > 0 ||
-      batchStage === "in-transit" ||
-      batchStage === "received" ||
-      batchStage === "delivered" ||
-      batchStage === "dispensed";
+  const isDestPharmacy = Boolean(
+    destOrg.includes("pharmacy") ||
+    destOrg.includes("apollo") ||
+    destOrg.includes("medplus") ||
+    destOrg.includes("dispensary") ||
+    destOrg.includes("healthcare") ||
+    destOrg.includes("retail")
+  );
 
-    if (!hasLeftManufacturer) {
-      viewStatus = "Active";
-      stage = "Fresh";
-    } else if (batchStage === "in-transit") {
-      viewStatus = "Dispatched";
-      stage = "In-Transit";
-    } else {
-      // Responsibility completed for this stage
+  const isHeldByPharmacy = Boolean(
+    currentOrg.includes("pharmacy") ||
+    currentOrg.includes("apollo") ||
+    currentOrg.includes("medplus") ||
+    currentOrg.includes("dispensary")
+  );
+
+  const isHeldByDistributor = Boolean(
+    currentOrg.includes("distributor") ||
+    currentOrg.includes("logistics") ||
+    currentOrg.includes("wholesale") ||
+    currentOrg.includes("novartis") ||
+    currentOrg.includes("central")
+  );
+
+  const isHeldByManufacturer = Boolean(
+    !isHeldByDistributor && !isHeldByPharmacy && (
+      currentOrg.includes("apex") ||
+      currentOrg.includes("origin") ||
+      currentOrg.includes("facility") ||
+      currentOrg.includes("manufacturer") ||
+      !currentCustodian ||
+      currentCustodian === batchManufacturer
+    )
+  );
+
+  const isBatchInTransit = batchStage === "in-transit" || Boolean(destAddress || destOrg);
+  const isDispensed = batchStage === "dispensed" || batchStage === "delivered";
+
+  if (role === "manufacturer") {
+    if (isDispensed) {
       viewStatus = "Completed";
       stage = "Delivered";
+    } else if (isBatchInTransit) {
+      viewStatus = "Dispatched";
+      stage = "In-Transit";
+    } else if (!isHeldByManufacturer) {
+      viewStatus = "Completed";
+      stage = "Delivered";
+    } else {
+      viewStatus = "Active";
+      stage = "Fresh";
     }
   } else if (role === "distributor") {
-    const isDest = reqAddr && destAddress === reqAddr;
-    const isCurrent = reqAddr && currentCustodian === reqAddr;
-    const hasDispatchedDownstream =
-      isCurrent && destAddress.length > 0 && destAddress !== reqAddr;
-
-    if (isDest && currentCustodian !== reqAddr) {
-      viewStatus = "Incoming";
-      stage = "In-Transit";
-    } else if (isCurrent && !hasDispatchedDownstream) {
-      viewStatus = "Active";
-      stage = "Fresh";
-    } else if (isCurrent && hasDispatchedDownstream && batchStage === "in-transit") {
-      viewStatus = "Dispatched";
-      stage = "In-Transit";
-    } else {
+    if (isDispensed) {
       viewStatus = "Completed";
       stage = "Delivered";
-    }
-  } else if (role === "warehouse") {
-    const isDest = reqAddr && destAddress === reqAddr;
-    const isCurrent = reqAddr && currentCustodian === reqAddr;
-
-    if (isDest && currentCustodian !== reqAddr) {
-      viewStatus = "Incoming";
-      stage = "In-Transit";
-    } else if (isCurrent && !destAddress) {
-      viewStatus = "Active";
+    } else if (isBatchInTransit) {
+      if (isDestPharmacy) {
+        viewStatus = "Dispatched";
+        stage = "In-Transit";
+      } else {
+        viewStatus = "In-Transit";
+        stage = "In-Transit";
+      }
+    } else if (isHeldByPharmacy) {
+      viewStatus = "Completed";
+      stage = "Delivered";
+    } else if (isHeldByDistributor) {
+      viewStatus = "In Custody";
       stage = "Fresh";
     } else {
       viewStatus = "Completed";
       stage = "Delivered";
     }
   } else if (role === "pharmacy") {
-    const isDest = reqAddr && destAddress === reqAddr;
-    const isCurrent = reqAddr && currentCustodian === reqAddr;
-    const isDispensed = batchStage === "dispensed";
-
     if (isDispensed) {
-      viewStatus = "Dispensed";
+      viewStatus = "Completed";
       stage = "Delivered";
-    } else if (isDest && currentCustodian !== reqAddr) {
-      viewStatus = "Incoming";
-      stage = "In-Transit";
-    } else if (isCurrent) {
-      viewStatus = "Active";
+    } else if (isBatchInTransit) {
+      if (isDestPharmacy) {
+        viewStatus = "In-Transit";
+        stage = "In-Transit";
+      } else {
+        viewStatus = "Dispatched";
+        stage = "In-Transit";
+      }
+    } else if (isHeldByPharmacy) {
+      viewStatus = "In Custody";
       stage = "Fresh";
     } else {
       viewStatus = "Completed";
@@ -253,10 +276,10 @@ export function deriveRoleStatus(batch, requester, events = []) {
     }
   } else {
     // Public / All
-    if (batchStage === "dispensed") {
-      viewStatus = "Dispensed";
+    if (isDispensed) {
+      viewStatus = "Completed";
       stage = "Delivered";
-    } else if (batchStage === "in-transit") {
+    } else if (isBatchInTransit) {
       viewStatus = "In-Transit";
       stage = "In-Transit";
     } else {

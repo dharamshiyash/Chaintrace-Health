@@ -5,10 +5,120 @@ import { truncateAddress } from "../lib/utils.js";
 import { ArrowsClockwise, WarningCircle } from "@phosphor-icons/react";
 import QRModal from "./QRModal.jsx";
 
+export function getRoleDisplayStatus(b, role) {
+  if (b.status === "Recalled") return "Recalled";
+  if (b.status === "Suspicious") return "Suspicious";
+  if (b.status === "Expired") return "Expired";
+
+  const stage = String(b.stage || "").toLowerCase();
+  const destOrg = String(b.destination_org || "").toLowerCase();
+  const destAddr = String(b.destination_address || "").toLowerCase();
+  const currentOrg = String(b.current_org || "").toLowerCase();
+  const currentCustodian = String(b.current_custodian || "").toLowerCase();
+  const mfg = String(b.manufacturer || "").toLowerCase();
+  const hasDestination = Boolean(b.destination_address || b.destination_org);
+  const isInTransit = stage === "in-transit" || b.isInTransit || hasDestination;
+  const isDispensed = stage === "dispensed" || stage === "delivered";
+
+  const targetDest = `${destOrg} ${destAddr}`;
+  const targetCurrent = `${currentOrg} ${currentCustodian}`;
+
+  const isDestPharmacy = Boolean(
+    targetDest.includes("pharmacy") ||
+    targetDest.includes("apollo") ||
+    targetDest.includes("medplus") ||
+    targetDest.includes("dispensary") ||
+    targetDest.includes("healthcare") ||
+    targetDest.includes("retail") ||
+    targetDest.includes("0x4e1e0cb18ae2f56f466513c67969ca4e864df0f3") ||
+    targetDest.includes("0x9fc97e4a860f5f6873523f03b51e50882eff12a1")
+  );
+
+  const isDestDistributor = Boolean(
+    targetDest.includes("distributor") ||
+    targetDest.includes("wholesale") ||
+    targetDest.includes("novartis") ||
+    targetDest.includes("central") ||
+    targetDest.includes("logistics") ||
+    targetDest.includes("warehouse") ||
+    targetDest.includes("0xc26535042e34fdf8e56015f2fb6fe175f9a25365") ||
+    targetDest.includes("0x2bd8a4078832a8c3775685b643442ffa567b47f3") ||
+    targetDest.includes("0x8af0b59ce4f25f5e0af59309a9a25e8e5a7b09d1")
+  );
+
+  const isHeldByPharmacy = Boolean(
+    targetCurrent.includes("pharmacy") ||
+    targetCurrent.includes("apollo") ||
+    targetCurrent.includes("medplus") ||
+    targetCurrent.includes("dispensary") ||
+    targetCurrent.includes("0x4e1e0cb18ae2f56f466513c67969ca4e864df0f3") ||
+    targetCurrent.includes("0x9fc97e4a860f5f6873523f03b51e50882eff12a1")
+  );
+
+  const isHeldByDistributor = Boolean(
+    targetCurrent.includes("distributor") ||
+    targetCurrent.includes("wholesale") ||
+    targetCurrent.includes("novartis") ||
+    targetCurrent.includes("central") ||
+    targetCurrent.includes("logistics") ||
+    targetCurrent.includes("warehouse") ||
+    targetCurrent.includes("0xc26535042e34fdf8e56015f2fb6fe175f9a25365") ||
+    targetCurrent.includes("0x2bd8a4078832a8c3775685b643442ffa567b47f3") ||
+    targetCurrent.includes("0x8af0b59ce4f25f5e0af59309a9a25e8e5a7b09d1")
+  );
+
+  const isHeldByManufacturer = Boolean(
+    !isHeldByDistributor && !isHeldByPharmacy && (
+      targetCurrent.includes("apex") ||
+      targetCurrent.includes("origin") ||
+      targetCurrent.includes("facility") ||
+      targetCurrent.includes("manufacturer") ||
+      targetCurrent.includes("bharat") ||
+      !currentCustodian ||
+      currentCustodian === mfg
+    )
+  );
+
+  if (role === "manufacturer") {
+    if (isDispensed) return "Completed";
+    if (isInTransit) return "Dispatched";
+    if (isHeldByDistributor || isHeldByPharmacy || !isHeldByManufacturer) {
+      return "Completed";
+    }
+    return "Active";
+  }
+
+  if (role === "distributor") {
+    if (isDispensed) return "Completed";
+    if (isInTransit) {
+      if (isDestPharmacy) return "Dispatched";
+      return "In-Transit";
+    }
+    if (isHeldByPharmacy) return "Completed";
+    if (isHeldByDistributor) return "In Custody";
+    return "Completed";
+  }
+
+  if (role === "pharmacy") {
+    if (isDispensed) return "Completed";
+    if (isInTransit) {
+      if (isDestPharmacy) return "In-Transit";
+      return "Dispatched";
+    }
+    if (isHeldByPharmacy) return "In Custody";
+    return "Completed";
+  }
+
+  if (isDispensed) return "Completed";
+  if (isInTransit) return "In-Transit";
+  return b.display_status || b.view_status || b.status || "Active";
+}
+
 export default function BatchTable({
   batches = [],
   loading = false,
   error = null,
+  role = "all",
   onRetry = null,
   onRecall = null,
   onDispatch = null,
@@ -101,9 +211,116 @@ export default function BatchTable({
           </thead>
           <tbody>
             {batches.map((b) => {
-              const displayStatus = b.display_status || b.view_status || b.status;
+              const displayStatus = getRoleDisplayStatus(b, role);
               const isRecalled = b.status === "Recalled";
               const isSuspicious = b.status === "Suspicious";
+              const isRecalledOrSuspicious = isRecalled || isSuspicious;
+
+              const stageLower = String(b.stage || "").toLowerCase();
+              const hasDest = Boolean(b.destination_address || b.destination_org);
+              const isBatchInTransit = b.isInTransit || stageLower === "in-transit" || hasDest;
+
+              const destOrgLower = String(b.destination_org || "").toLowerCase();
+              const destAddrLower = String(b.destination_address || "").toLowerCase();
+              const currentOrgLower = String(b.current_org || "").toLowerCase();
+              const currentCustLower = String(b.current_custodian || "").toLowerCase();
+
+              const targetDest = `${destOrgLower} ${destAddrLower}`;
+              const targetCurrent = `${currentOrgLower} ${currentCustLower}`;
+
+              const isDestPharmacy = Boolean(
+                targetDest.includes("pharmacy") ||
+                targetDest.includes("apollo") ||
+                targetDest.includes("medplus") ||
+                targetDest.includes("dispensary") ||
+                targetDest.includes("healthcare") ||
+                targetDest.includes("retail") ||
+                targetDest.includes("0x4e1e0cb18ae2f56f466513c67969ca4e864df0f3") ||
+                targetDest.includes("0x9fc97e4a860f5f6873523f03b51e50882eff12a1")
+              );
+
+              const isHeldByPharmacy = Boolean(
+                targetCurrent.includes("pharmacy") ||
+                targetCurrent.includes("apollo") ||
+                targetCurrent.includes("medplus") ||
+                targetCurrent.includes("dispensary") ||
+                targetCurrent.includes("0x4e1e0cb18ae2f56f466513c67969ca4e864df0f3") ||
+                targetCurrent.includes("0x9fc97e4a860f5f6873523f03b51e50882eff12a1")
+              );
+
+              const isHeldByDistributor = Boolean(
+                targetCurrent.includes("distributor") ||
+                targetCurrent.includes("wholesale") ||
+                targetCurrent.includes("novartis") ||
+                targetCurrent.includes("central") ||
+                targetCurrent.includes("logistics") ||
+                targetCurrent.includes("warehouse") ||
+                targetCurrent.includes("0xc26535042e34fdf8e56015f2fb6fe175f9a25365") ||
+                targetCurrent.includes("0x2bd8a4078832a8c3775685b643442ffa567b47f3") ||
+                targetCurrent.includes("0x8af0b59ce4f25f5e0af59309a9a25e8e5a7b09d1")
+              );
+
+              const isHeldByManufacturer = Boolean(
+                !isHeldByDistributor && !isHeldByPharmacy && (
+                  targetCurrent.includes("apex") ||
+                  targetCurrent.includes("origin") ||
+                  targetCurrent.includes("facility") ||
+                  targetCurrent.includes("manufacturer") ||
+                  targetCurrent.includes("bharat") ||
+                  !b.current_custodian ||
+                  b.current_custodian === b.manufacturer
+                )
+              );
+
+              // 1. Receive Button:
+              // Distributor: only when in-transit AND destined for a distributor (NOT pharmacy)
+              // Pharmacy: only when in-transit AND destined for pharmacy (NOT distributor)
+              const canDistributorReceive =
+                role === "distributor" &&
+                onReceive &&
+                !isRecalledOrSuspicious &&
+                isBatchInTransit &&
+                !isDestPharmacy;
+
+              const canPharmacyReceive =
+                role === "pharmacy" &&
+                onReceive &&
+                !isRecalledOrSuspicious &&
+                isBatchInTransit &&
+                isDestPharmacy;
+
+              const showReceiveBtn = canDistributorReceive || canPharmacyReceive;
+
+              // 2. Dispatch Button:
+              // Manufacturer: only when physically holding in facility (not in transit!)
+              // Distributor: only when distributor holds the batch (already received, not in transit!)
+              const canManufacturerDispatch =
+                role === "manufacturer" &&
+                onDispatch &&
+                !isRecalledOrSuspicious &&
+                !isBatchInTransit &&
+                isHeldByManufacturer;
+
+              const canDistributorDispatch =
+                role === "distributor" &&
+                onDispatch &&
+                !isRecalledOrSuspicious &&
+                !isBatchInTransit &&
+                isHeldByDistributor;
+
+              const showDispatchBtn = canManufacturerDispatch || canDistributorDispatch;
+
+              // 3. Dispense Button:
+              // Pharmacy only, when physically holding in dispensary (not in transit, not dispensed)
+              const canPharmacyDispense =
+                role === "pharmacy" &&
+                onDispense &&
+                !isRecalledOrSuspicious &&
+                !isBatchInTransit &&
+                isHeldByPharmacy &&
+                stageLower !== "dispensed";
+
+              const showDispenseBtn = canPharmacyDispense;
 
               return (
                 <tr 
@@ -168,7 +385,7 @@ export default function BatchTable({
                         >
                           QR
                         </button>
-                        {onReceive && !isRecalled && !isSuspicious && (displayStatus === "Incoming" || displayStatus === "In-Transit" || b.isInTransit) && (
+                        {showReceiveBtn && (
                           <button
                             className="px-2.5 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-md transition-colors border border-emerald-200"
                             title="Accept incoming custody"
@@ -180,7 +397,7 @@ export default function BatchTable({
                             Receive
                           </button>
                         )}
-                        {onDispatch && !isRecalled && !isSuspicious && (displayStatus === "Active" || displayStatus === "Registered" || displayStatus === "Available" || b.isFresh) && (
+                        {showDispatchBtn && (
                           <button
                             className="px-2.5 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
                             title="Dispatch batch"
@@ -192,7 +409,7 @@ export default function BatchTable({
                             Dispatch
                           </button>
                         )}
-                        {onDispense && !isRecalled && !isSuspicious && (displayStatus === "Active" || displayStatus === "Available" || b.isFresh) && (
+                        {showDispenseBtn && (
                           <button
                             className="px-2.5 py-1.5 text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors"
                             title="Dispense to patient"
